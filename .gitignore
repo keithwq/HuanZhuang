@@ -3,3 +3,5 @@ dist/
 tests/evidence/*.raw/
 .vite/
 .tmp/
+test-results/
+playwright-report/
