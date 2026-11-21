@@ -9,7 +9,6 @@ import { createApp } from './core/app';
 import { BootScene } from './core/scenes/BootScene';
 import { StageScene } from './core/scenes/StageScene';
 import { UiScene } from './core/scenes/UiScene';
-import { texmem } from './texmem/accountant';
 
 const renderScale = (): number => {
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
@@ -51,13 +50,10 @@ updateOrientationMask();
 // 生命周期（ADR-002 §3）：关页兜底冲刷
 window.addEventListener('pagehide', () => app.save.flush());
 
-// 热重载/调试/QA 钩子（e2e 消费：tests/e2e/redline-latency.spec.ts；不承载游戏逻辑）
-Object.assign(globalThis, {
-  __hz: {
-    app,
-    game,
-    texmemKeys: (): string[] => texmem.report().keys,
-  },
-});
+// dev-only 测试探针（QA 计划 §2.0；R-16 红线：production 零暴露——
+// 动态 import 门控：prod 构建分支消除 → 探针模块整块不进产物，静态可证）
+if (import.meta.env.DEV) {
+  void import('./core/probe').then(({ installWindowProbe }) => installWindowProbe(app, game));
+}
 
 export { game };

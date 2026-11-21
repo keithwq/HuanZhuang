@@ -56,36 +56,12 @@ export class UiScene extends Phaser.Scene {
     this.relayout();
     this.scale.on('resize', () => this.relayout());
 
-    // QA 钩子（e2e 驱动面，tests/e2e/redline-latency.spec.ts 消费；不承载游戏逻辑）
-    this.installQaHook();
-  }
-
-  /** QA 钩子：tapCard / tapUnequip / flip / 分组枚举（R-01/R-02 e2e 数据面驱动） */
-  private installQaHook(): void {
-    const hook = {
-      tapCard: (itemId: string) => {
-        const item = clothingById(itemId);
-        if (!item) return { type: 'rejected', reason: 'unknown-item' };
-        return this.ctrl.tapCard(item);
-      },
-      tapUnequip: (slot: SlotId) => this.ctrl.tapUnequip(slot),
-      flip: () => {
-        const target = this.app.model.getView() === 'front' ? 'back' : 'front';
-        bus.emit('view:flipRequest', { target });
-        return target;
-      },
-      groupIds: (): string[] => GROUPS.map((g) => g.id),
-      firstOwnedItemOf: (groupId: GroupId): string | null => {
-        const g = groupById(groupId);
-        const keys = g.keys.map((k) => (k === 'HAND_L' || k === 'HAND_R' ? 'HAND' : k));
-        const hit = [...this.app.save.getOwned()]
-          .map((id) => clothingById(id))
-          .find((c) => c && keys.includes(c.slot));
-        return hit ? hit.itemId : null;
-      },
-    };
-    const g = globalThis as unknown as { __hz?: Record<string, unknown> };
-    g.__hz = { ...(g.__hz ?? {}), ui: hook };
+    // QA 钩子（dev-only：动态 import 门控——prod 构建整模块不进产物，R-16）
+    if (import.meta.env.DEV) {
+      void import('../qa-hook').then(({ installUiQaHook }) =>
+        installUiQaHook(this.ctrl, this.app, this.game),
+      );
+    }
   }
 
   private relayout(): void {

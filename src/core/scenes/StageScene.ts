@@ -81,7 +81,8 @@ export class StageScene extends Phaser.Scene {
       this.app.reducedMotion(),
     );
 
-    // 拖拽翻转手势（paperdoll §2.2 路径 A：全宽 × 96px 判定区）
+    // 拖拽翻转手势（paperdoll §2.2 路径 A：全宽 × 96px 判定区）——经 bus 事件统一入口
+    // （探针 flip_start 双路径共用口径，QA §2.2）
     const zoneY = this.scale.height * 0.25;
     const zone = this.add
       .zone(0, 0, this.scale.width, DRAWER.handleHeightPx)
@@ -95,7 +96,7 @@ export class StageScene extends Phaser.Scene {
     zone.on('pointerup', (p: Phaser.Input.Pointer) => {
       if (Math.abs(p.x - dragStartX) > 40) {
         const target = p.x < dragStartX ? 'back' : 'front'; // 左拖→背面
-        this.requestFlip(target);
+        bus.emit('view:flipRequest', { target });
       }
     });
 
