@@ -59,6 +59,12 @@ export class StageScene extends Phaser.Scene {
       this.playTryonConfirm();
     });
 
+    // 造型回穿：静默批量落位后**单次**焕新动效（E3-S02，look-save §2.5 防 13 连播）
+    bus.on('look:applied', () => {
+      this.applyRender(this.app.model.getOutfitSnapshot());
+      this.playTryonConfirm(); // 焕新 = 换装确认动效全身版（150ms 淡入 + 2% 上浮，总 ≤300ms）
+    });
+
     // 正/背切换状态机（E1-S08）
     this.viewSwap = new ViewSwap(
       {

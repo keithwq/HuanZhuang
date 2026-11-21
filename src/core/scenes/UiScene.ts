@@ -13,6 +13,11 @@ import { DrawerController, type DrawerTier } from '../../systems/hud/DrawerContr
 import { GROUPS, groupById, sortGroupItems, unequipCardsOf } from '../../systems/wardrobe/groups';
 import { filterItems } from '../../systems/wardrobe/filter';
 import { TryonController } from '../../systems/wardrobe/tryonController';
+import { LookPanelModel, validateLookName } from '../../systems/looks/lookPanel';
+import { createApplyFlow } from '../../systems/looks/applyFlow';
+import { OverlayManager } from '../../systems/hud/OverlayManager';
+import { ensureGreyTexture } from '../../systems/paperdoll/greybox';
+import type { OutfitKey } from '../constants/slots';
 import { clothingById, type ClothingItem } from '../../data/items';
 
 const COLORS = { bg: 0xf3eff9, cloud: 0xdce2f2, aster: 0x8268c6, night: 0x3a3358 };
@@ -32,6 +37,12 @@ export class UiScene extends Phaser.Scene {
   private tabLayer: Phaser.GameObjects.Container | null = null;
   private activeGroup: GroupId = 'G3';
   private toastText: Phaser.GameObjects.Text | null = null;
+  // E3-S01/S02 造型面板（look overlay）
+  private overlayMgr = new OverlayManager();
+  private lookPanel!: LookPanelModel;
+  private applyLook!: ReturnType<typeof createApplyFlow>;
+  private lookLayer: Phaser.GameObjects.Container | null = null;
+  private nameInput: HTMLInputElement | null = null;
 
   constructor() {
     super('UI');
@@ -43,6 +54,8 @@ export class UiScene extends Phaser.Scene {
 
   create(): void {
     this.ctrl = new TryonController(this.app.model, this.app.save);
+    this.lookPanel = new LookPanelModel(this.app.save);
+    this.applyLook = createApplyFlow(this.app.model, this.app.save);
     this.coinValue = this.app.save.getCoins();
 
     // 货币栏镜像（hud §6：余额变更事件刷新；重建场景对象时以 coinValue 复原）
@@ -93,6 +106,15 @@ export class UiScene extends Phaser.Scene {
     flipBtn.on('pointerup', () => {
       const target = this.app.model.getView() === 'front' ? 'back' : 'front';
       bus.emit('view:flipRequest', { target });
+    });
+
+    // 顶导「造型」入口（hud §2.3 → openOverlay('look') 单层互斥）
+    const lookBtn = this.add
+      .text(L.logicalW - 128, L.safeTop + 88, '我的造型', this.font(24))
+      .setOrigin(1, 0.5)
+      .setInteractive({ useHandCursor: true });
+    lookBtn.on('pointerup', () => {
+      if (!this.overlayMgr.isOpen()) this.renderLookOverlay();
     });
 
     // 舞台底部边界：顶导下沿 + 舞台高
@@ -313,6 +335,245 @@ export class UiScene extends Phaser.Scene {
       label.on('pointerup', tap);
     });
     void FEEDBACK_MS;
+  }
+
+  // ---------------------------------------------------------------- E3 造型面板覆盖层
+
+  /** 打开造型面板（hud §6 openOverlay('look')——单层互斥） */
+  private renderLookOverlay(): void {
+    if (this.overlayMgr.openOverlay('look') === null) return;
+    const L = this.layout;
+    this.closeNameInput();
+    this.lookLayer = this.add.container(0, 0).setDepth(50);
+    const layer = this.lookLayer!;
+
+    // 遮罩（hud §5.4：吸收触控；点按空白处关闭）
+    const mask = this.add.rectangle(L.logicalW / 2, L.logicalH / 2, L.logicalW, L.logicalH, 0x2e2a45, 0.45)
+      .setInteractive({ useHandCursor: true });
+    layer.add(mask);
+    mask.on('pointerup', () => this.closeLookOverlay());
+
+    // 关闭按钮
+    const closeBtn = this.add
+      .text(24, L.safeTop + L.topNavH + 24, '✕', this.font(32))
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerup', () => this.closeLookOverlay());
+    layer.add(closeBtn);
+
+    this.renderLookCards();
+  }
+
+  /** 面板内容（标题/n9/满位 Caption/九宫格）——保存/删除/重命名后可独立刷新 */
+  private renderLookCards(): void {
+    const layer = this.lookLayer;
+    if (!layer) return;
+    const L = this.layout;
+
+    // 标题 + n/9 副标（look-save §2.1）
+    layer.add(this.add.text(L.logicalW / 2, L.safeTop + L.topNavH + 24, '我的造型', this.font(36, true)).setOrigin(0.5));
+    layer.add(
+      this.add.text(L.logicalW - 24, L.safeTop + L.topNavH + 26, `${this.lookPanel.usedCount()}/9`, this.font(24))
+        .setOrigin(1, 0),
+    );
+
+    // 满位 Caption（look-save §2.6：非弹窗、非红光）
+    if (this.lookPanel.isFull()) {
+      layer.add(
+        this.add
+          .text(L.logicalW / 2, L.safeTop + L.topNavH + 66, '造型已满，删除一个腾出位置', this.font(24))
+          .setOrigin(0.5)
+          .setColor('#2e2a45'),
+      );
+    }
+
+    // 3×3 九宫格（卡片 208×208，look-save §4 公式）
+    const cardW = 208;
+    const gap = 16;
+    const startX = 24 + cardW / 2;
+    const gridTop = L.safeTop + L.topNavH + 110;
+    this.lookPanel.slots().forEach((slot) => {
+      const col = slot.index % 3;
+      const row = Math.floor(slot.index / 3);
+      const cx = startX + col * (cardW + gap);
+      const cy = gridTop + row * (cardW + gap) + cardW / 2;
+      if (slot.look === null) {
+        this.renderVacantCard(layer, cx, cy);
+      } else {
+        this.renderLookCard(layer, cx, cy, slot.look.id);
+      }
+    });
+  }
+
+  /** 空位卡：虚线意象描边 + 保存当前造型入口（look-save §2.1） */
+  private renderVacantCard(layer: Phaser.GameObjects.Container, cx: number, cy: number): void {
+    const cardW = 208;
+    const rect = this.add.rectangle(cx, cy, cardW, cardW, COLORS.bg, 0.6).setStrokeStyle(3, COLORS.aster, 0.7);
+    layer.add(rect);
+    const label = this.add
+      .text(cx, cy, '保存当前造型', this.font(24))
+      .setOrigin(0.5)
+      .setColor('#2e2a45');
+    layer.add(label);
+    rect.setInteractive({ useHandCursor: true });
+    label.setInteractive({ useHandCursor: true });
+    const openNaming = (): void => this.openNamingInput(cx, cy);
+    rect.on('pointerup', openNaming);
+    label.on('pointerup', openNaming);
+  }
+
+  /** 占用位卡：实时迷你渲染（0.4 缩放正面合成，look-save §2.4）+ 名称 + 操作条 */
+  private renderLookCard(layer: Phaser.GameObjects.Container, cx: number, cy: number, lookId: string): void {
+    const L = this.layout;
+    const look = this.app.save.getLooks().find((l) => l.id === lookId)!;
+    const cardW = 208;
+    const rect = this.add.rectangle(cx, cy, cardW, cardW, COLORS.cloud, 1).setStrokeStyle(2, COLORS.night, 0.8);
+    layer.add(rect);
+    rect.setInteractive({ useHandCursor: true });
+
+    // 实时迷你渲染：look.outfit 正面合成 0.4 缩放，卡片上半区裁剪（look-save §4）
+    const mini = this.add.container(cx, cy - cardW / 2 + 8);
+    const miniMask = this.make.graphics({}, false);
+    miniMask.fillStyle(0xffffff, 1);
+    miniMask.fillRect(cx - cardW / 2, cy - cardW / 2, cardW, cardW * 0.72); // 名称/操作条占下方 ~1/4
+    mini.setMask(miniMask.createGeometryMask());
+    const view = 'front';
+    for (const r of this.app.model.renderItems()) {
+      // 以 look.outfit 的值合成（当前模型视图仅用于层序表——合成值取快照）
+      const itemId = look.outfit[r.key as OutfitKey];
+      let texKey: string;
+      if (r.key === 'BODY') {
+        texKey = `gz_BODY_${view}`;
+      } else if (itemId === null) {
+        continue;
+      } else {
+        texKey = ensureGreyTexture(this, itemId, view);
+      }
+      const img = this.add.image(0, 0, texKey).setOrigin(0.5, 0);
+      img.setScale(0.4); // 512×1024 → 208×416 裁剪上半区（look-save §4 取整档 0.4）
+      mini.add(img);
+    }
+    layer.add(mini);
+
+    // 名称（Body 层级常显——§9.5）+ 操作条三按钮（§9.3 显式按钮，≥44×44 触控区）
+    layer.add(
+      this.add.text(cx, cy + cardW / 2 - 56, shortName(look.name), this.font(24)).setOrigin(0.5, 1).setColor('#2e2a45'),
+    );
+    const mkBtn = (dx: number, text: string, onTap: () => void): void => {
+      const btn = this.add
+        .text(cx + dx, cy + cardW / 2 - 18, text, this.font(22))
+        .setOrigin(0.5, 1)
+        .setBackgroundColor('#dce2f2')
+        .setPadding(10, 4, 10, 4)
+        .setInteractive({ useHandCursor: true });
+      btn.on('pointerup', onTap);
+      layer.add(btn);
+    };
+    mkBtn(-70, '回穿', () => {
+      const r = this.applyLook(lookId); // 原子全槽 + 单次焕新（E3-S02）
+      if (r.ok) {
+        this.closeLookOverlay();
+        this.renderGrid(); // wardrobe 穿着角标刷新（look-save §2.5 联动）
+      }
+    });
+    mkBtn(0, '重命名', () => this.openNamingInput(cx, cy - 24, lookId));
+    mkBtn(70, '删除', () => {
+      // 行内二次确认（look-save §2.6：[确认删除？][取消]，不叠弹窗）
+      if (!this.lookPanel.isDeletePending(lookId)) {
+        this.lookPanel.requestDelete(lookId);
+        this.refreshLookCards();
+        return;
+      }
+      this.lookPanel.confirmDelete();
+      this.refreshLookCards();
+    });
+    void L;
+  }
+
+  /** 覆盖层内九宫格刷新（行内确认/删除后重绘；遮罩与 mgr 状态不动） */
+  private refreshLookCards(): void {
+    if (!this.lookLayer || !this.overlayMgr.isOpen()) return;
+    this.lookLayer.removeAll(true);
+    this.renderLookCards();
+  }
+
+  private closeLookOverlayLayers(): void {
+    this.lookLayer?.destroy(true);
+    this.lookLayer = null;
+  }
+
+  /** 关闭造型面板 */
+  private closeLookOverlay(): void {
+    this.lookPanel.cancelDelete();
+    this.closeNameInput();
+    this.closeLookOverlayLayers();
+    this.overlayMgr.closeOverlay();
+  }
+
+  /** DOM 命名输入（灰盒阶段实现；软键盘避让属 E5 真机项） */
+  private openNamingInput(cx: number, cy: number, renameId?: string): void {
+    this.closeNameInput();
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = renameId ? this.app.save.getLooks().find((l) => l.id === renameId)!.name : this.lookPanel.defaultName();
+    input.maxLength = 8 * 2; // 浏览器以 UTF-16 计——中文按 2 位（look-save §2.3 16 字符位口径）
+    input.setAttribute('style',
+      `position:fixed;left:${cx - 90}px;top:${cy - 60}px;width:180px;padding:10px;border-radius:12px;` +
+      `border:3px solid #8268C6;font-size:20px;background:#F3EFF9;color:#3A3358;z-index:10;text-align:center;`);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this.commitNaming(renameId);
+      if (e.key === 'Escape') this.closeNameInput();
+    });
+    input.addEventListener('blur', () => {
+      // 灰盒简化：失焦即提交（取消路径走 Esc——look-save §2.3 [取消]=关闭无变化）
+      this.commitNaming(renameId);
+    });
+    document.getElementById('game')!.appendChild(input);
+    this.nameInput = input;
+    setTimeout(() => input.focus(), 0);
+  }
+
+  private commitNaming(renameId?: string): void {
+    const input = this.nameInput;
+    if (!input) return;
+    const raw = input.value;
+    this.closeNameInput();
+    const v = validateLookName(raw);
+    if (renameId) {
+      if (v.ok) this.lookPanel.rename(renameId, raw);
+    } else {
+      const r = this.lookPanel.saveCurrent(raw, this.app.model.getOutfitSnapshot()); // 完整 13 槽深拷贝（§2.2）
+      if ('error' in r) this.toast('造型已满，删除一个腾出位置');
+      else this.toast('已保存');
+    }
+    this.refreshLookOverlay();
+  }
+
+  private closeNameInput(): void {
+    if (this.nameInput) {
+      const el = this.nameInput;
+      this.nameInput = null; // 先置空防 blur 递归
+      el.remove();
+    }
+  }
+
+  /** 覆盖层整体刷新（保存/重命名后——重建含遮罩的整层；openOverlay 已在开态直接放行刷新） */
+  private refreshLookOverlay(): void {
+    if (!this.overlayMgr.isOpen()) return;
+    this.closeLookOverlayLayers();
+    this.lookLayer = this.add.container(0, 0).setDepth(50);
+    const L = this.layout;
+    const mask = this.add.rectangle(L.logicalW / 2, L.logicalH / 2, L.logicalW, L.logicalH, 0x2e2a45, 0.45)
+      .setInteractive({ useHandCursor: true });
+    mask.on('pointerup', () => this.closeLookOverlay());
+    this.lookLayer!.add(mask);
+    const closeBtn = this.add
+      .text(24, L.safeTop + L.topNavH + 24, '✕', this.font(32))
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerup', () => this.closeLookOverlay());
+    this.lookLayer!.add(closeBtn);
+    this.renderLookCards();
   }
 }
 
