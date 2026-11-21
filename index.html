@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>换装 · 星夜魔法学院</title>
+    <style>
+      /* 美术圣经 §3.1 字体栈 · §6.2 手势冲突抑制（checklist T-07） */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #f3eff9; /* 雾光底 Mist */
+        font-family: 'PingFang SC', 'HarmonyOS Sans SC', 'MiSans', 'Noto Sans SC',
+          'Microsoft YaHei', sans-serif;
+        touch-action: none; /* T-07：禁双击缩放/下拉刷新 */
+        overscroll-behavior: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+      #game {
+        width: 100%;
+        height: 100%;
+      }
+      #rotate-mask {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 99;
+        background: #f3eff9;
+        color: #3a3358;
+        font-size: 20px;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="rotate-mask">请旋转回竖屏，换个姿势更舒服</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
