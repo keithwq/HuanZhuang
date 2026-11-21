@@ -6,7 +6,7 @@
 
 import { expect, test } from '@playwright/test';
 
-/** 浏览器侧 __hz 面（QA 钩子，src/main.ts + UiScene.installQaHook 安装） */
+/** 浏览器侧 __hz 面（dev-only 探针 + QA 钩子，src/core/probe.ts + qa-hook.ts 安装） */
 interface HzQa {
   app: {
     model: { getOutfitSnapshot(): Record<string, string | null>; getView(): 'front' | 'back' };
@@ -16,24 +16,81 @@ interface HzQa {
   game: { scene: { isActive(key: string): boolean } };
   ui: {
     tapCard(itemId: string): { type: string };
+    tapUnequip(slot: string): { type: string };
     flip(): 'front' | 'back';
     groupIds(): string[];
     firstOwnedItemOf(groupId: string): string | null;
   };
   texmemKeys(): string[];
+  probe: {
+    stats(): {
+      taps: { n: number; p50: number; p95: number; max: number };
+      flips: { n: number; p50: number; p95: number; max: number };
+      frames: { n: number; p50: number; p95: number; max: number; dropBursts: number };
+    };
+    texmem(): { keys: string[]; currentMB: number; peakMB: number };
+    reset(): void;
+    markTapIn(): void;
+  };
 }
 
 const bootReady = (page: import('@playwright/test').Page): Promise<void> =>
   page
     .waitForFunction(() => {
+      // 探针两步安装（main.ts 先挂 probe 面、UiScene 后并入 app/game/ui）——谓词须容忍部分安装态
       const hz = (window as unknown as { __hz?: HzQa }).__hz;
-      return hz != null && hz.game.scene.isActive('Stage') && hz.game.scene.isActive('UI');
+      return hz?.game?.scene?.isActive('Stage') === true && hz.game.scene.isActive('UI') === true;
     }, undefined, { timeout: 10_000 })
     .then(() => undefined);
 
 test.beforeEach(async ({ page }) => {
   await page.goto('http://localhost:4173');
   await bootReady(page);
+});
+
+test.describe('探针冒烟（QA 计划 §2.0 前置基础设施）', () => {
+  test('tap_in→render_commit 时序样本可采集且 max ≤300ms（R-01 探针口径）', async ({ page }) => {
+    const r = await page.evaluate(async () => {
+      const hz = (window as unknown as { __hz: HzQa }).__hz;
+      hz.probe.reset();
+      const id = hz.ui.firstOwnedItemOf('G2')!;
+      // 穿/卸交替各采一版（穿=applied、卸=tryon:done(null)，均产 render_commit 样本）
+      for (let i = 0; i < 6; i++) {
+        hz.ui.tapCard(id);
+        await new Promise((res) => setTimeout(res, 60)); // 跨帧落点
+        hz.ui.tapCard(id); // 同卡轻反馈（无状态变化 → 不产样本）
+        hz.ui.tapUnequip('HEAD');
+        await new Promise((res) => setTimeout(res, 60));
+      }
+      return hz.probe.stats();
+    });
+    expect(r.taps.n).toBeGreaterThanOrEqual(6); // 轻反馈不产样本（可见变化判据生效）
+    expect(r.taps.max).toBeLessThanOrEqual(300); // R-01 探针口径（pointerup→首帧）
+  });
+
+  test('flip_start→flip_commit 时序样本可采集（R-02 探针口径）', async ({ page }) => {
+    const r = await page.evaluate(async () => {
+      const hz = (window as unknown as { __hz: HzQa }).__hz;
+      hz.probe.reset();
+      hz.ui.flip();
+      await new Promise((res) => setTimeout(res, 500));
+      hz.ui.flip();
+      await new Promise((res) => setTimeout(res, 500));
+      return hz.probe.stats();
+    });
+    expect(r.flips.n).toBe(2);
+    expect(r.flips.max).toBeLessThanOrEqual(300); // R-02 探针口径
+  });
+
+  test('帧间隔采样与 texmem 报表可查询（QA §2.4 口径面）', async ({ page }) => {
+    const r = await page.evaluate(async () => {
+      const hz = (window as unknown as { __hz: HzQa }).__hz;
+      await new Promise((res) => setTimeout(res, 800)); // 稳态帧窗口
+      return { frames: hz.probe.stats().frames, tex: hz.probe.texmem() };
+    });
+    expect(r.frames.n).toBeGreaterThan(10);
+    expect(r.tex.currentMB).toBeGreaterThan(0);
+  });
 });
 
 test.describe('Boot 冒烟（灰盒）', () => {

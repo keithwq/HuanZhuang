@@ -1,9 +1,10 @@
 import { defineConfig } from '@playwright/test';
 
 /**
- * e2e 配置（testing-scaffold §2.2）
+ * e2e 配置（testing-scaffold §2.2 + QA 计划 §2.0/§4.1-C5）
+ * - **dev 服务器**为目标（探针/QA 钩子仅 dev 暴露——R-16）；production 构建零暴露由
+ *   tests/unit/prod-bundle-hygiene.spec.ts 静态断言（C-5：console 告警类断言若引入须切 prod 构建）
  * - 系统 Edge/Chrome 通道（免浏览器下载；真机矩阵留 E5-S02）
- * - webServer：vite preview（dist 静态产物，architecture §9 部署形态）
  */
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -17,7 +18,7 @@ export default defineConfig({
     hasTouch: true,
   },
   webServer: {
-    command: 'npm run preview -- --port 4173 --strictPort',
+    command: 'npx vite --port 4173 --strictPort',
     url: 'http://localhost:4173',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
