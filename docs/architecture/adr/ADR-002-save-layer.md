@@ -111,3 +111,17 @@ SaveService
 | 测试先行 | 单测：旧档缺键补齐 true、false 写入读回一致、即时写触发（不入 500ms 防抖路径断言）、存档体积复核 ≤100KB 不受影响 |
 
 **配套备案（不入 CAL-04，单列）**：音频解码后常驻 Web Audio 缓冲**不计入 ADR-003 纹理预算**（CAL-04 只管纹理）——BGM 60s @32–44.1kHz 交付解码后 ≈15–21MB、SFX 合计 <1MB（audio-plan §4.5）；该数值随 Phase 5 真机压测（epics E5-S01）一并留证据，不新增 CAL 条目。
+
+---
+
+## 补丁附录 · B：stats.triedItems 辅助清单备案（2026-11-21，QA round1 MIN-1 备案）
+
+> 性质：local-save §2.1 冻结 schema 的 stats 域内新增**辅助字段**（非独立结构位）——服务 tryOnUnique 首穿判定（wardrobe §3）与 S09 新试类可达性（daily §4）。按本 ADR §4.4「新字段必须可派生或可默认」纪律备案：
+
+| 项 | 口径 |
+|---|---|
+| 键 | `stats.triedItems: string[]`（已试穿过 itemId 全集） |
+| 兼容模式 | 旧档缺失 → Serializer 补空数组（`applyDefaults` 已实现，零迁移） |
+| 派生性 | 可从 tryon:done 事件流重放推导（非第一事实源——第一源是事件，本字段是判重缓存） |
+| 体积影响 | 上限 ≈ 全持有 45 项 × 24B ≈ 1.1KB（体积复核用例覆盖，§8.8 不受影响） |
+| 不参与判据 | tryOnUnique 判据语义以「是否在 triedItems」为准，其余 stats 键不变 |

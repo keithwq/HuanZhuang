@@ -11,7 +11,7 @@
 
 | 项 | 结论 | 依据 |
 |---|---|---|
-| 渲染引擎 | **Phaser 3.88.x**（补丁线钉定，Phase 5 开工前复核最新稳定版，checklist.md G-01） | ADR-001 |
+| 渲染引擎 | **Phaser 3.90.0「Tsugumi」**（G-01 已解除：v3 树末版、3.88 官方 drop-in 零破坏性——ADR-001 v1.0.2 补丁；checklist §4 升级纪律） | ADR-001 |
 | 语言 | TypeScript（strict） | ADR-001 配套：13 槽/21 锚点/静态配置表强类型化 |
 | 构建 | Vite → 纯静态 `dist/` | D1-13 无服务端 |
 | 部署 | 任意静态 HTTP(S) 托管（gzip/brotli + 长缓存），无后端、无账号、无云 | D1-13、任务派发口径 |
