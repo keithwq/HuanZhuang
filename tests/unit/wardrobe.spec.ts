@@ -118,12 +118,14 @@ describe('点选即换状态机（wardrobe §2.2 / §8.1：无锁、可打断、
     expect(save.getStats().tryOnTotal).toBe(before);      // 无计数
   });
 
-  it('卸下卡 → 槽位回空、BODY 显露（wardrobe §8.1-3 联合）', () => {
-    const { ctrl, model } = setup();
+  it('卸下卡 → 槽位回空、BODY 显露 + **tryOnTotal 同计**（wardrobe §3/§8.1 联合 + QA MAJ-1 修复）', () => {
+    const { ctrl, model, save } = setup();
     const top = CLOTHING_ITEMS.find((c) => c.slot === 'TOP' && !c.dress)!;
     ctrl.tapCard(top);
+    const before = save.getStats().tryOnTotal;
     expect(ctrl.tapUnequip('TOP').type).toBe('unequipped');
     expect(model.getOutfitKey('TOP')).toBeNull();
+    expect(save.getStats().tryOnTotal).toBe(before + 1); // 卸下计数（wardrobe §3 冻结口径）
   });
 
   it('连衣裙 + BTM 页签：状态更新画面遮蔽 + Caption 信号（wardrobe §2.3/§8.4）', () => {
@@ -146,15 +148,15 @@ describe('点选即换状态机（wardrobe §2.2 / §8.1：无锁、可打断、
     expect(outfit.HAIR_F).toBe(pairF.itemId);
   });
 
-  it('试穿事件以 S01 成功回调为准：不重复计数（wardrobe §6）', () => {
+  it('试穿事件以 S01 成功回调为准：单通道不重复计数（wardrobe §6）', () => {
     const { ctrl, save } = setup();
     const top = CLOTHING_ITEMS.find((c) => c.slot === 'TOP')!;
     ctrl.tapCard(top);
     // 控制器内不直接 bump——计数全部经 tryon:done 事件单通道
     expect(save.getStats().tryOnTotal).toBe(1);
-    // unequip 不计数（itemId = null）
+    // unequip 同计（wardrobe §3 冻结口径 + QA MAJ-1 修复）
     ctrl.tapUnequip('TOP');
-    expect(save.getStats().tryOnTotal).toBe(1);
+    expect(save.getStats().tryOnTotal).toBe(2);
   });
 });
 

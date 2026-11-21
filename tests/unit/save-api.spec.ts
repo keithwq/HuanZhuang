@@ -87,23 +87,28 @@ describe('持有与计数口径（wardrobe §8.8 / local-save §6）', () => {
     expect(svc.getOwned()).toHaveLength(1);
   });
 
-  it('noteTryOn：每次成功 +tryOnTotal，首穿另计 tryOnUnique（wardrobe §3）', () => {
+  it('noteTryOn：每次成功 tryOn/unequip 均 +tryOnTotal（wardrobe §3 冻结 + QA MAJ-1 修复），首穿另计 tryOnUnique', () => {
     const svc = new SaveService();
     const detach = attachTryOnCounting(svc);
     bus.emit('tryon:done', { slot: 'TOP', itemId: CLOTHING_ITEMS[0].itemId });
     bus.emit('tryon:done', { slot: 'TOP', itemId: CLOTHING_ITEMS[0].itemId });
     bus.emit('tryon:done', { slot: 'LEG', itemId: CLOTHING_ITEMS[2].itemId });
+    // 卸下（itemId=null）同样计数（wardrobe §2.2 点选卡片含卸下卡 → bumpStat）
+    bus.emit('tryon:done', { slot: 'TOP', itemId: null });
     const s = svc.getStats();
-    expect(s.tryOnTotal).toBe(3);
-    expect(s.tryOnUnique).toBe(2);
+    expect(s.tryOnTotal).toBe(4); // 3 次试穿 + 1 次卸下
+    expect(s.tryOnUnique).toBe(2); // 卸下不参与 unique
     expect(s.triedItems).toEqual([CLOTHING_ITEMS[0].itemId, CLOTHING_ITEMS[2].itemId]);
     detach();
   });
 
-  it('以 S01 成功回调为准：unequip（itemId=null）不计数', () => {
+  it('以 S01 成功回调为准：unequip（itemId=null）计数路径经同一事件通道', () => {
     const svc = new SaveService();
+    const detach = attachTryOnCounting(svc); // 计数单通道挂接（bootstrap 口径）
     bus.emit('tryon:done', { slot: 'TOP', itemId: null });
-    expect(svc.getStats().tryOnTotal).toBe(0);
+    expect(svc.getStats().tryOnTotal).toBe(1); // wardrobe §3：每次成功 tryOn/unequip 计
+    expect(svc.getStats().tryOnUnique).toBe(0);
+    detach();
   });
 });
 

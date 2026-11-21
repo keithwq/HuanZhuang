@@ -71,9 +71,11 @@ export class TryonController {
   }
 }
 
-/** 事件总线统一计数挂接（bootstrap 调用一次）：以 S01 成功回调为准（wardrobe §6） */
+/** 事件总线统一计数挂接（bootstrap 调用一次）：以 S01 成功回调为准（wardrobe §6）
+ * 口径（wardrobe §3 冻结 + QA round1 MAJ-1 修复）：**每次成功 tryOn/unequip 均**计 tryOnTotal——
+ * 卸下（itemId=null）同样 +1；首穿另计 tryOnUnique（null 不参与 unique）。 */
 export const attachTryOnCounting = (save: SaveService): (() => void) => {
   return bus.on('tryon:done', (p) => {
-    if (p.itemId !== null) save.noteTryOn(p.itemId);
+    save.noteTryOn(p.itemId);
   });
 };

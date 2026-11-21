@@ -275,15 +275,19 @@ export class SaveService {
     this.policy.scheduleDebounced();
   }
 
-  /** tryOn 计数口径（wardrobe §2.2/§3：每次成功 +tryOnTotal；首穿另计 tryOnUnique） */
-  noteTryOn(itemId: string): { total: number; unique: boolean } {
+  /** tryOnUnique 首穿判定（wardrobe §3：itemId 首次被试穿计 tryOnUnique——辅助清单 triedItems 判重） */
+  noteTryOnUnique(itemId: string): boolean {
+    if (!itemId || this.data.stats.triedItems.includes(itemId)) return false;
+    this.data.stats.triedItems.push(itemId);
+    this.bumpStat('tryOnUnique', 1);
+    return true;
+  }
+
+  /** tryOn 计数口径（wardrobe §3 冻结：**每次成功 tryOn/unequip 均**计 tryOnTotal；首穿另计 tryOnUnique） */
+  noteTryOn(itemId: string | null): { total: number; unique: boolean } {
+    // 卸下（itemId=null）同样 +1（wardrobe §2.2 状态机「点选卡片（含卸下卡）→ bumpStat」）
     this.bumpStat('tryOnTotal', 1);
-    let unique = false;
-    if (itemId && !this.data.stats.triedItems.includes(itemId)) {
-      this.data.stats.triedItems.push(itemId);
-      unique = true;
-      this.bumpStat('tryOnUnique', 1);
-    }
+    const unique = itemId !== null ? this.noteTryOnUnique(itemId) : false;
     return { total: this.data.stats.tryOnTotal, unique };
   }
 
