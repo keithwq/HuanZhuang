@@ -41,22 +41,26 @@ export const priceOf = (slot: string, rarity: Rarity): number => BASE_PRICE[slot
 /**
  * 目录构造：[slot, series, 变体名, rarity, pool, dress?]
  * 槽位配额（45 件口径，README E4-S01 表完整性 spec 的对账基准）：
- *   HAIR 4 对（8 件：3 对可购 + 1 对解锁）/ LEG 5 / BTM 5 / TOP 8（含 2 连衣裙）
- *   OUT 5 / HAND 4 / NECK 3 / HEAD 2 / FACE 1 / BK 2 / FX 2
+ *   HAIR 5 对（10 件：4 对可购 + 1 对解锁）/ LEG 5 / BTM 4 / TOP 8（含 3 连衣裙）
+ *   OUT 6 / HAND 3 / NECK 2 / HEAD 3 / FACE 2 / BK 2 / FX 2
+ * 首套 = starnight（asset-manifest v1.2 §2 P1 定稿命名，12 部件全普通档，TOP 为连衣裙样本）
  */
 type Row = [SlotId, string, string, Rarity, Pool] | [SlotId, string, string, Rarity, Pool, 'dress'];
 
 const ROWS: Row[] = [
-  // —— 星辉系列（首套默认套装来源，全普通档）
-  ['HAIR_B', 'starlight', 'twin_braid', 'common', 'shop'],
-  ['HAIR_F', 'starlight', 'twin_braid', 'common', 'shop'],
-  ['LEG', 'starlight', 'star_ankle_boots', 'common', 'shop'],
-  ['BTM', 'starlight', 'pleated_nightskirt', 'common', 'shop'],
-  ['TOP', 'starlight', 'campus_shirt', 'common', 'shop'],
-  ['OUT', 'starlight', 'dew_cardigan', 'common', 'shop'],
-  ['HAND', 'starlight', 'star_wand', 'common', 'shop'],
-  ['NECK', 'starlight', 'moonstone_choker', 'common', 'shop'],
-  ['HEAD', 'starlight', 'star_barrette', 'common', 'shop'],
+  // —— starnight 星夜学院新生套装（asset-manifest §2 #30~40 定稿命名；TOP 连衣裙样本）——
+  ['HAIR_B', 'starnight', 'hair', 'common', 'shop'],
+  ['HAIR_F', 'starnight', 'hair', 'common', 'shop'],
+  ['BK', 'starnight', 'cape', 'common', 'shop'],
+  ['LEG', 'starnight', 'boots', 'common', 'shop'],
+  ['BTM', 'starnight', 'skirt', 'common', 'shop'],
+  ['TOP', 'starnight', 'dress', 'common', 'shop', 'dress'],
+  ['OUT', 'starnight', 'cardigan', 'common', 'shop'],
+  ['HAND', 'starnight', 'wand', 'common', 'shop'],
+  ['NECK', 'starnight', 'pendant', 'common', 'shop'],
+  ['HEAD', 'starnight', 'tiara', 'common', 'shop'],
+  ['FACE', 'starnight', 'blush', 'common', 'shop'],
+  ['FX', 'starnight', 'veil', 'common', 'shop'],
   // —— 月露系列
   ['HAIR_B', 'moondew', 'long_waves', 'common', 'shop'],
   ['HAIR_F', 'moondew', 'long_waves', 'common', 'shop'],
@@ -64,7 +68,6 @@ const ROWS: Row[] = [
   ['OUT', 'moondew', 'veil_cloak', 'rare', 'shop'],
   ['BTM', 'moondew', 'lace_shorts', 'common', 'shop'],
   ['LEG', 'moondew', 'glass_slippers', 'rare', 'shop'],
-  ['FX', 'moondew', 'silver_mist_veil', 'rare', 'shop'],
   // —— 花藤系列
   ['HAIR_B', 'vinerose', 'flower_updo', 'rare', 'shop'],
   ['HAIR_F', 'vinerose', 'flower_updo', 'rare', 'shop'],
@@ -82,12 +85,10 @@ const ROWS: Row[] = [
   ['TOP', 'academy', 'lecture_gown', 'common', 'shop'],
   ['OUT', 'academy', 'constellation_cloak', 'rare', 'shop'],
   ['LEG', 'academy', 'buckle_oxfords', 'common', 'shop'],
-  ['FACE', 'academy', 'star_reading_glasses', 'common', 'shop'],
   ['BK', 'academy', 'spirit_wings', 'limited', 'shop'],
   // —— 星轨系列
   ['BTM', 'astral', 'comet_tail_pants', 'rare', 'shop'],
   ['TOP', 'astral', 'meteor_wrap_top', 'rare', 'shop'],
-  ['NECK', 'astral', 'orbit_choker', 'common', 'shop'],
   ['LEG', 'astral', 'nova_heel_boots', 'rare', 'shop'],
   ['OUT', 'astral', 'aurora_trench', 'limited', 'shop'],
   ['HAIR_B', 'astral', 'nebula_bun', 'rare', 'shop'],
@@ -104,7 +105,7 @@ const ROWS: Row[] = [
 const nameOf = (r: Row): string => r[2].replace(/_/g, ' ');
 
 const TAG_SETS: Record<string, readonly string[]> = {
-  starlight: ['日常', '学院'],
+  starnight: ['学院', '星辉'],
   moondew: ['月光', '礼服'],
   vinerose: ['花藤', '礼服'],
   clouddream: ['云梦', '日常'],

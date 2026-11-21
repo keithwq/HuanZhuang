@@ -230,14 +230,25 @@ export class UiScene extends Phaser.Scene {
 
   /** 物品网格：卸下卡 + 已拥有卡片（组内次序 ux-spec §2.1；104×104 卡片，§6.2） */
   private renderGrid(): void {
+    if (!this.gridLayer) return;
     const gridLayer = this.gridLayer;
-    if (!gridLayer) return;
     gridLayer.removeAll(true);
     const L = this.layout;
     const g = groupById(this.activeGroup);
     const drawerH = this.drawer.current().height;
     const drawerTopY = L.safeTop + L.topNavH + L.stageH - drawerH;
     const top = drawerTopY + DRAWER.handleHeightPx + 56;
+
+    // 连衣裙穿着期 BTM 页签持续 Caption（wardrobe §2.3：非阻塞提示，非弹窗——
+    // 首启默认 TOP 即连衣裙（starnight_dress）场景下常显，P5-EL-S1c 语义复核补齐项）
+    if (this.activeGroup === 'G4' && this.app.model.isBtmOccluded()) {
+      gridLayer.add(
+        this.add
+          .text(L.logicalW / 2, top - 18, '当前被连衣裙遮蔽，可先换好下装', this.font(22))
+          .setOrigin(0.5)
+          .setColor('#2e2a45'),
+      );
+    }
 
     // 卸下卡（混组每槽一张 + Caption 标注，wardrobe §2.1 修订段）
     const unequipCards = unequipCardsOf(g.id).map((c) => ({

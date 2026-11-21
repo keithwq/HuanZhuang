@@ -159,7 +159,7 @@ describe('U-06 · 多标签页（local-save §5.6 / ADR-002 §5）', () => {
 
   it('本地有未冲刷防抖数据 → 本地优先不替换（延迟覆盖写）', () => {
     const svcA = new SaveService();
-    svcA.setOutfitSlot('TOP', 'HZ_char01_TOP_starlight_campus_shirt_a_v001'); // 防抖 pending
+    svcA.setOutfitSlot('TOP', 'HZ_char01_TOP_starnight_dress_a_v001'); // 防抖 pending
     const incoming = newSave(new Date().toISOString());
     incoming.economy.coins = 999;
     window.dispatchEvent(
@@ -203,7 +203,7 @@ describe('写入时机（local-save §2.2/§8.2）', () => {
     svc.saveLook('我的造型 1', svc.getOutfit());
     expect(JSON.parse(window.localStorage.getItem(SAVE_KEY)!).looks).toHaveLength(1);
 
-    svc.setPlacement('L-01', 'HZ_ROOM_L_starlit_four_poster_b_v001');
+    svc.setPlacement('L-01', 'HZ_ROOM_L_starlight_bed_b_v001');
     expect(JSON.parse(window.localStorage.getItem(SAVE_KEY)!).room.placement['L-01']).toBeTruthy();
 
     svc.setAudioEnabled(false); // ADR-002 补丁附录 A：settings 即时写
@@ -270,7 +270,7 @@ describe('货币与账本红线（local-save §8.5/§8.8）', () => {
     }
     for (let i = 0; i < 55; i++) svc.addCoins(150, 'daily_task');
     const anchors = ['L-01', 'L-02', 'L-03', 'M-01', 'M-02', 'M-03', 'M-04', 'S-01', 'S-02', 'S-T1', 'S-T2', 'S-T3', 'S-T4', 'S-T5', 'W-01', 'W-02', 'W-03', 'W-04', 'W-05', 'W-06', 'R-01'];
-    for (const a of anchors) svc.setPlacement(a, 'HZ_ROOM_M_moonbeam_floor_lamp_a_v001');
+    for (const a of anchors) svc.setPlacement(a, 'HZ_ROOM_M_moon_lamp_a_v001');
     expect(svc.saveSizeBytes()).toBeLessThanOrEqual(100 * 1024);
   });
 });

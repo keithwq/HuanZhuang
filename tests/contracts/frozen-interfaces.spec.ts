@@ -106,7 +106,7 @@ describe('GAP-4 · onTabChange 参数域 = 组 ID（ux-spec §2.3 / wardrobe §2
     expect(p.tryOn.length).toBe(2);
     const m = new PaperdollModel();
     // 逐槽调用路径仍以 SlotId 为参数（非 GroupId）
-    const r = m.tryOn('TOP', 'HZ_char01_TOP_starlight_campus_shirt_a_v001');
+    const r = m.tryOn('TOP', 'HZ_char01_TOP_starnight_dress_a_v001');
     expect(r.ok).toBe(true);
   });
 });

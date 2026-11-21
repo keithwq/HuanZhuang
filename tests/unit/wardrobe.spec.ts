@@ -42,14 +42,14 @@ describe('分组契约（GAP-4 / ux-spec §2.1）', () => {
   it('组内次序规则：当前穿着置顶钉住 → 系列聚集 → 系列内稀有度升序（ux-spec §2.1 定稿）', () => {
     const items = [
       { itemId: 'a', series: 'academy', rarity: 'rare' as const, worn: false },
-      { itemId: 'b', series: 'starlight', rarity: 'common' as const, worn: true },
+      { itemId: 'b', series: 'starnight', rarity: 'common' as const, worn: true },
       { itemId: 'c', series: 'academy', rarity: 'common' as const, worn: false },
       { itemId: 'd', series: 'academy', rarity: 'limited' as const, worn: false },
-      { itemId: 'e', series: 'starlight', rarity: 'rare' as const, worn: false },
+      { itemId: 'e', series: 'starnight', rarity: 'rare' as const, worn: false },
     ];
     const sorted = sortGroupItems(items);
     expect(sorted.map((i) => i.itemId)).toEqual(['b', 'c', 'a', 'd', 'e']);
-    // b（穿着置顶）→ academy 系聚集（字典序在前，内按稀有度升序 c→a→d）→ starlight 系（e）
+    // b（穿着置顶）→ academy 系聚集（字典序在前，内按稀有度升序 c→a→d）→ starnight 系（e）
   });
 
   it('槽位 → 组归类正确（跨发型混搭页签不存在）', () => {
@@ -76,7 +76,7 @@ describe('筛选谓词（wardrobe §4：单选 OR 语义）', () => {
   });
 
   it('页签 × 标签空集 → 空数组（空态文案归 UI 层，wardrobe §5.7）', () => {
-    const owned = [CLOTHING_ITEMS[0].itemId]; // 仅 starlight（标签 日常/学院）
+    const owned = [CLOTHING_ITEMS[0].itemId]; // 仅 starnight 首件（标签 学院/星辉）
     expect(filterItems(CLOTHING_ITEMS, { owned, activeTag: '礼服' })).toHaveLength(0);
   });
 });

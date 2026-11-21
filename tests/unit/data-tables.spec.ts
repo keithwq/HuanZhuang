@@ -8,6 +8,8 @@ import { FURNITURE_ITEMS, furnitureById, isCurtainOnly, shopFurnitureTotal } fro
 import { CLOTHING_ITEMS, clothingById, hairPairOf, shopClothingTotal, STYLE_TAGS } from '../../src/data/items';
 import { DAILY_REWARD, TASK_POOL } from '../../src/data/tasks';
 import { DEFAULT_OWNED_ITEM_IDS, DEFAULT_OUTFIT } from '../../src/data/defaults';
+import { PaperdollModel } from '../../src/systems/paperdoll/model';
+import { GROUPS } from '../../src/systems/wardrobe/groups';
 
 describe('服装目录（economy §3：45 = 39 可购 + 6 解锁）', () => {
   it('总量与分池（分池互斥：同一物品只属一池）', () => {
@@ -209,5 +211,32 @@ describe('默认套装（paperdoll §5.5：首启无档默认渲染）', () => {
     expect(hb.pairId).toBe(hf.pairId);
     // 全部 itemId 在目录内
     for (const id of DEFAULT_OWNED_ITEM_IDS) expect(clothingById(id)).toBeDefined();
+  });
+
+  it('首套 = starnight 清单命名（asset-manifest v1.2 §2，P1 定稿）', () => {
+    for (const id of DEFAULT_OWNED_ITEM_IDS) expect(id).toContain('starnight');
+    // 交付资产对齐：默认套装件均有 @2x 落盘文件（HAIR_F/FACE/FX 无背面件——§4.5/manifest 口径）
+    expect(DEFAULT_OWNED_ITEM_IDS.length).toBe(12); // manifest §2 部件全集（HAIR×2 计 2 件；仅 HAND_R 未占用）
+  });
+
+  it('默认 TOP 为连衣裙：BTM 遮蔽语义与初始 outfit 一致（paperdoll §5.1 状态渲染解耦）', () => {
+    const top = clothingById(DEFAULT_OUTFIT.TOP!)!;
+    expect(top.dress).toBe(true); // manifest §2：TOP 槽为连衣裙样本
+    expect(DEFAULT_OUTFIT.BTM).toBeTruthy(); // 被遮蔽选择态保留（状态与渲染解耦）
+    // 遮蔽判定经模型：着 dress → isBtmOccluded
+    const m = new PaperdollModel(DEFAULT_OUTFIT);
+    expect(m.isBtmOccluded()).toBe(true);
+    // 渲染项：BTM visible=false 且 itemId 保留
+    const btm = m.renderItems().find((r) => r.key === 'BTM')!;
+    expect(btm.visible).toBe(false);
+    expect(btm.itemId).toBe(DEFAULT_OUTFIT.BTM);
+  });
+
+  it('8 分组页签全部非空（wardrobe §5.5：首启保证）', () => {
+    // 每个 GROUPS 组 ≥1 件默认拥有
+    for (const g of GROUPS) {
+      const keys = new Set(g.keys.map((k) => (k === 'HAND_L' || k === 'HAND_R' ? 'HAND' : k)));
+      expect(DEFAULT_OWNED_ITEM_IDS.some((id) => keys.has(clothingById(id)!.slot))).toBe(true);
+    }
   });
 });
