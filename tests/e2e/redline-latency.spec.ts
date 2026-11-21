@@ -113,25 +113,27 @@ test.describe('Boot 冒烟（灰盒）', () => {
 });
 
 test.describe('R-01 · 点选即换（≤300ms 数据面）', () => {
-  test('点选 → 状态+计数同步落位，同步路径 ≤300ms', async ({ page }) => {
+  test('点选 → 真实 tryOn 路径：type=applied、计数恰 +1、同步路径 ≤300ms（QA MAJ-3 断言收紧）', async ({ page }) => {
     const r = await page.evaluate(() => {
       const hz = (window as unknown as { __hz: HzQa }).__hz;
       const id = hz.ui.firstOwnedItemOf('G2'); // 头饰组（默认套装含 1 件）
+      // 真实路径前置（QA round1 §3 MAJ-3）：先卸下 → 下一 tap 必为 applied（杜绝 lightFeedback 空转绿）
+      hz.ui.tapUnequip('HEAD');
       const before = hz.app.save.getStats().tryOnTotal;
       const t0 = performance.now();
       const ev = hz.ui.tapCard(id!);
-      return { ev, ms: performance.now() - t0, after: hz.app.save.getStats().tryOnTotal, before };
+      return { ev, ms: performance.now() - t0, delta: hz.app.save.getStats().tryOnTotal - before };
     });
-    expect(r.ev.type).toMatch(/applied|lightFeedback|btmOccludedCaption/);
+    expect(r.ev.type).toBe('applied'); // 收紧：必须命中真实试穿路径
+    expect(r.delta).toBe(1);           // 收紧：计数恰 +1（单通道）
     expect(r.ms).toBeLessThanOrEqual(300); // R-01：点选→状态+渲染信号同步路径
-    expect(r.after).toBeGreaterThanOrEqual(r.before); // 计数经 tryon:done 单通道
   });
 
   test('同卡轻反馈（wardrobe §2.2）', async ({ page }) => {
     const r = await page.evaluate(() => {
       const hz = (window as unknown as { __hz: HzQa }).__hz;
       const id = hz.ui.firstOwnedItemOf('G2')!;
-      hz.ui.tapCard(id); // 穿上
+      hz.ui.tapCard(id); // 穿上（若已穿着则本步即轻反馈，下步必然轻反馈）
       return hz.ui.tapCard(id); // 再点同卡
     });
     expect(r.type).toBe('lightFeedback');

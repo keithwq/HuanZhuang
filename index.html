@@ -7,6 +7,8 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <!-- MIN-2 修复（QA round1）：空 data-URI icon，消除启动 favicon 404 噪声 -->
+    <link rel="icon" href="data:," />
     <title>换装 · 星夜魔法学院</title>
     <style>
       /* 美术圣经 §3.1 字体栈 · §6.2 手势冲突抑制（checklist T-07） */
