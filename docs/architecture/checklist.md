@@ -25,6 +25,7 @@
 | R-13 | 货币不变量 | `coins ≥ 0` 任何路径；发放/扣账唯一路径 addCoins/spendCoins | local-save §8.5 | tests/unit/economy.spec |
 | R-14 | DPR 策略 | 后备存储 = CSS × min(DPR,2)；部件 @2× / 背景类 @1×；低端机 @1× 降级档 | ADR-003 | texmem-report 断言 |
 | R-15 | 减敏合规 | `prefers-reduced-motion`：常驻动效全关、反馈 ≤100ms 淡切、旋转禁压缩 | art §9.4 | Playwright 仿真断言 |
+| R-16 | 测试探针零暴露 | `window.__hz` dev-only（import.meta.env.DEV + 动态 import 门控）；**production 构建出现探针 = 验收 FAIL** | QA 计划 §2.0/§4.2-2（主理人批准备案 2026-11-21） | tests/unit/prod-bundle-hygiene.spec.ts 静态断言 |
 
 ## 2. 技术风险清单（风险 × 缓解 × 验收项）
 
@@ -68,7 +69,8 @@
 7. UI 模块持有/改写游戏状态 → 拒绝（hud §2.5 容器红线）；
 8. 覆盖层内再开覆盖层 / 系统改写容器布局 → 拒绝（hud §2.5/§5.4）；
 9. 13 槽层序用一张表加翻转推导 → 拒绝（paperdoll §5.4）；
-10. 造型保存不存截图入档 / 存第 10 位路径可达 / `coins<0` 路径可达 → 拒绝（local-save §8 / look-save §8）。
+10. 造型保存不存截图入档 / 存第 10 位路径可达 / `coins<0` 路径可达 → 拒绝（local-save §8 / look-save §8）；
+11. dev 探针泄漏 production（`__hz` / markTapIn / qa-hook 残留产物）→ 拒绝合并（QA 计划 §2.0 备案转红线，2026-11-21——prod-bundle-hygiene.spec 机检）。
 
 ## 4. 引擎版本纪律
 
