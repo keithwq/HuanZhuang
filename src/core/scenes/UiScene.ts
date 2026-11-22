@@ -26,6 +26,14 @@ import { drawDailyTasks } from '../../systems/daily/draw';
 import { claimDailyTask, dailyBadgeText, readTaskList } from '../../systems/daily/progress';
 import { readShopPage, revealShopDetail, type ShopTabId } from '../../systems/shop/catalog';
 import { purchaseShopItem } from '../../systems/shop/purchase';
+import {
+  achievementBadgeText,
+  claimAchievementReward,
+  evaluateAchievements,
+  openAchievementOverlay,
+  tabOpensAchievements,
+  type AchievementRow,
+} from '../../systems/achievements/eval';
 
 const COLORS = { bg: 0xf3eff9, cloud: 0xdce2f2, aster: 0x8268c6, night: 0x3a3358 };
 
@@ -61,6 +69,10 @@ export class UiScene extends Phaser.Scene {
   private shopTab: ShopTabId = 'clothing';
   private shopScroll = 0;
   private shopDetailId: string | null = null;
+  private achieveLayer: Phaser.GameObjects.Container | null = null;
+  private achieveClip: Phaser.GameObjects.Graphics | null = null;
+  private achieveScroll = 0;
+  private achieveBadge: Phaser.GameObjects.Text | null = null;
   private nameInput: HTMLInputElement | null = null;
 
   constructor() {
@@ -118,6 +130,7 @@ export class UiScene extends Phaser.Scene {
     });
     const taskOpen = this.overlayMgr.current() === 'task';
     const shopOpen = this.overlayMgr.current() === 'shop';
+    const achieveOpen = this.overlayMgr.current() === 'achieve';
     this.children.removeAll(true);
     this.coinText = null;
     this.gridLayer = null;
@@ -127,6 +140,10 @@ export class UiScene extends Phaser.Scene {
     this.shopLayer = null;
     this.shopClip?.destroy();
     this.shopClip = null;
+    this.achieveBadge = null;
+    this.achieveLayer = null;
+    this.achieveClip?.destroy();
+    this.achieveClip = null;
     const L = this.layout;
 
     // 顶导 88：模式标题 + 货币栏 + 转身按钮
@@ -175,7 +192,7 @@ export class UiScene extends Phaser.Scene {
     // 舞台底部边界：顶导下沿 + 舞台高
     const stageBottom = L.safeTop + L.topNavH + L.stageH;
 
-    // 标签栏 96。换装与房间走 ModeManager；商店打开目录；成就仍灰态摇头。
+    // 标签栏 96。换装与房间走 ModeManager；商店与成就打开覆盖层。
     const tabBarY = stageBottom + L.safeBottom + 48;
     this.modeTabLabels.clear();
     MODE_TAB_BAR.forEach((tab, i) => {
@@ -185,11 +202,23 @@ export class UiScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setName(`mode-tab-${tab.label}`)
         .setInteractive({ useHandCursor: true });
-      if (tab.label === '商店') txt.setDepth(60);
+      if (tab.label === '商店' || tabOpensAchievements(tab.label)) txt.setDepth(60);
       this.modeTabLabels.set(tab.label, txt);
+      if (tabOpensAchievements(tab.label)) {
+        this.achieveBadge = this.add
+          .text(x + 40, tabBarY - 18, '', this.font(22))
+          .setOrigin(0, 0.5)
+          .setColor('#8268c6')
+          .setDepth(61)
+          .setName('achievement-badge');
+      }
       txt.on('pointerup', () => {
         if (tab.label === '商店') {
           this.showShop();
+          return;
+        }
+        if (tabOpensAchievements(tab.label)) {
+          this.showAchievements();
           return;
         }
         if (!tab.enabled || tab.mode === null) {
@@ -224,6 +253,8 @@ export class UiScene extends Phaser.Scene {
     this.renderGrid();
     if (taskOpen) this.paintTaskOverlay();
     if (shopOpen) this.paintShopOverlay();
+    if (achieveOpen) this.paintAchievementOverlay();
+    this.paintAchievementBadge();
   }
 
   private paintTaskBadge(): void {
@@ -239,6 +270,7 @@ export class UiScene extends Phaser.Scene {
   }
 
   private openTaskOverlay(): void {
+    if (this.overlayMgr.current() === 'achieve') this.closeAchievementOverlay();
     if (this.overlayMgr.current() === 'task') {
       this.paintTaskOverlay();
       return;
@@ -313,13 +345,15 @@ export class UiScene extends Phaser.Scene {
     this.taskLayer = null;
     if (this.overlayMgr.current() === 'task') this.overlayMgr.closeOverlay();
     this.paintTaskBadge();
+    this.paintAchievementBadge();
   }
 
-  /** 底部「商店」。先收起造型或任务，再挂商店一层。 */
+  /** 底部「商店」。先收起造型、任务或成就，再挂商店一层。 */
   private showShop(): void {
     const current = this.overlayMgr.current();
     if (current === 'look') this.closeLookOverlay();
     else if (current === 'task') this.closeTaskOverlay();
+    else if (current === 'achieve') this.closeAchievementOverlay();
     if (this.overlayMgr.current() === 'shop') {
       this.paintShopOverlay();
       this.paintModeChrome();
@@ -510,6 +544,171 @@ export class UiScene extends Phaser.Scene {
     this.shopDetailId = null;
     if (this.overlayMgr.current() === 'shop') this.overlayMgr.closeOverlay();
     this.paintModeChrome();
+    this.paintAchievementBadge();
+  }
+
+  /** 底部「成就」。先收起其它覆盖层，再惰性判定并挂成就一层。 */
+  private showAchievements(): void {
+    const current = this.overlayMgr.current();
+    if (current === 'look') this.closeLookOverlay();
+    else if (current === 'task') this.closeTaskOverlay();
+    else if (current === 'shop') this.closeShopOverlay();
+    if (this.overlayMgr.current() === 'achieve') {
+      this.paintAchievementOverlay();
+      this.paintModeChrome();
+      this.paintAchievementBadge();
+      return;
+    }
+    openAchievementOverlay(this.overlayMgr);
+    this.paintAchievementOverlay();
+    this.paintModeChrome();
+    this.paintAchievementBadge();
+  }
+
+  private paintAchievementBadge(): void {
+    const badge = this.achieveBadge;
+    if (!badge?.active) return;
+    const label = achievementBadgeText(this.app.save);
+    if (label === null) {
+      badge.setVisible(false);
+      return;
+    }
+    badge.setVisible(true);
+    badge.setText(label);
+  }
+
+  private paintAchievementOverlay(): void {
+    if (this.overlayMgr.current() !== 'achieve') return;
+    const rows = evaluateAchievements(this.app.save);
+    this.achieveLayer?.destroy(true);
+    this.achieveClip?.destroy();
+    this.achieveClip = null;
+    const L = this.layout;
+    const layer = this.add.container(0, 0).setDepth(50);
+    this.achieveLayer = layer;
+    const groupName: Record<AchievementRow['group'], string> = {
+      collection: '收集',
+      behavior: '行为',
+      progress: '进度',
+    };
+
+    const mask = this.add
+      .rectangle(L.logicalW / 2, L.logicalH / 2, L.logicalW, L.logicalH, 0x2e2a45, 0.45)
+      .setInteractive({ useHandCursor: true });
+    mask.on('pointerup', () => this.closeAchievementOverlay());
+    layer.add(mask);
+
+    const closeBtn = this.add
+      .text(24, L.safeTop + L.topNavH + 24, '✕', this.font(32))
+      .setOrigin(0, 0)
+      .setName('achieve-close')
+      .setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerup', () => this.closeAchievementOverlay());
+    layer.add(closeBtn);
+    layer.add(
+      this.add.text(L.logicalW / 2, L.safeTop + L.topNavH + 28, '成就', this.font(36, true)).setOrigin(0.5, 0),
+    );
+
+    const lines: Array<{ kind: 'head'; text: string } | { kind: 'row'; row: AchievementRow }> = [];
+    for (const group of ['collection', 'behavior', 'progress'] as const) {
+      lines.push({ kind: 'head', text: groupName[group] });
+      for (const row of rows) {
+        if (row.group === group) lines.push({ kind: 'row', row });
+      }
+    }
+
+    const rowH = 84;
+    const headH = 36;
+    const viewTop = L.safeTop + L.topNavH + 88;
+    const viewH = Math.max(rowH, L.logicalH - viewTop - 24);
+    let contentH = 0;
+    for (const line of lines) contentH += line.kind === 'head' ? headH : rowH;
+    const maxScroll = Math.max(0, contentH - viewH);
+    this.achieveScroll = Math.min(this.achieveScroll, maxScroll);
+
+    const list = this.add.container(0, viewTop - this.achieveScroll);
+    layer.add(list);
+    const clip = this.make.graphics({}, false);
+    clip.fillStyle(0xffffff, 1);
+    clip.fillRect(0, viewTop, L.logicalW, viewH);
+    list.setMask(clip.createGeometryMask());
+    this.achieveClip = clip;
+
+    let y = 0;
+    for (const line of lines) {
+      if (line.kind === 'head') {
+        list.add(this.add.text(48, y, line.text, this.font(24, true)).setOrigin(0, 0));
+        y += headH;
+        continue;
+      }
+      const row = line.row;
+      const title = this.add
+        .text(48, y + 8, row.name, this.font(24))
+        .setOrigin(0, 0)
+        .setName(`achieve-row-${row.achId}`);
+      list.add(title);
+      const shown = Math.min(row.progress, row.threshold);
+      list.add(
+        this.add
+          .text(48, y + 44, `${shown}/${row.threshold}`, this.font(20))
+          .setOrigin(0, 0)
+          .setColor('#8268c6'),
+      );
+      const state = row.claimable ? '领取' : row.claimed ? '已领取' : '';
+      if (state) {
+        list.add(
+          this.add
+            .text(L.logicalW - 48, y + 36, state, this.font(24))
+            .setOrigin(1, 0.5)
+            .setColor(row.claimable ? '#3a3358' : '#8268c6')
+            .setName(row.claimable ? `achieve-claim-${row.achId}` : `achieve-claimed-${row.achId}`),
+        );
+      }
+      y += rowH;
+    }
+
+    const scroller = this.add
+      .rectangle(L.logicalW / 2, viewTop + viewH / 2, L.logicalW, viewH, 0x000000, 0.001)
+      .setInteractive({ useHandCursor: true });
+    layer.add(scroller);
+    let dragStart = 0;
+    let scrollStart = 0;
+    scroller.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      dragStart = pointer.y;
+      scrollStart = this.achieveScroll;
+    });
+    scroller.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (!pointer.isDown) return;
+      this.achieveScroll = Math.max(0, Math.min(maxScroll, scrollStart + (dragStart - pointer.y)));
+      list.setY(viewTop - this.achieveScroll);
+    });
+    scroller.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      if (Math.abs(pointer.y - dragStart) > 8) return;
+      const localY = pointer.y - (viewTop - this.achieveScroll);
+      if (pointer.x < L.logicalW - 160) return;
+      let cursor = 0;
+      for (const line of lines) {
+        const height = line.kind === 'head' ? headH : rowH;
+        if (line.kind === 'row' && localY >= cursor && localY < cursor + height && line.row.claimable) {
+          if (!claimAchievementReward(this.app.save, line.row.achId)) return;
+          this.paintAchievementOverlay();
+          this.paintAchievementBadge();
+          return;
+        }
+        cursor += height;
+      }
+    });
+  }
+
+  private closeAchievementOverlay(): void {
+    this.achieveLayer?.destroy(true);
+    this.achieveLayer = null;
+    this.achieveClip?.destroy();
+    this.achieveClip = null;
+    this.achieveScroll = 0;
+    if (this.overlayMgr.current() === 'achieve') this.overlayMgr.closeOverlay();
+    this.paintModeChrome();
+    this.paintAchievementBadge();
   }
 
   private font(px: number, bold = false): Phaser.Types.GameObjects.Text.TextStyle {
@@ -577,15 +776,22 @@ export class UiScene extends Phaser.Scene {
   private paintModeChrome(): void {
     if (!this.modes) return;
     this.modeTitle?.setText(this.shownMode === 'room' ? '房间' : '更衣室');
-    const shopOpen = this.overlayMgr.current() === 'shop';
+    const overlay = this.overlayMgr.current();
+    const shopOpen = overlay === 'shop';
+    const achieveOpen = overlay === 'achieve';
     for (const tab of MODE_TAB_BAR) {
       const txt = this.modeTabLabels.get(tab.label);
       if (!txt?.active) continue;
-      if (!tab.enabled) {
+      const lit = tab.enabled || tabOpensAchievements(tab.label);
+      if (!lit) {
         txt.setColor('#c9c0b4');
         continue;
       }
-      const selected = tab.label === '商店' ? shopOpen : !shopOpen && tab.mode === this.shownMode;
+      const selected = tab.label === '商店'
+        ? shopOpen
+        : tabOpensAchievements(tab.label)
+          ? achieveOpen
+          : overlay === null && tab.mode === this.shownMode;
       txt.setColor(selected ? '#8268c6' : '#3a3358');
     }
   }
@@ -788,6 +994,7 @@ export class UiScene extends Phaser.Scene {
 
   /** 打开造型面板（hud §6 openOverlay('look')——单层互斥） */
   private renderLookOverlay(): void {
+    if (this.overlayMgr.current() === 'achieve') this.closeAchievementOverlay();
     if (this.overlayMgr.openOverlay('look') === null) return;
     const L = this.layout;
     this.closeNameInput();
@@ -955,6 +1162,7 @@ export class UiScene extends Phaser.Scene {
     this.closeNameInput();
     this.closeLookOverlayLayers();
     this.overlayMgr.closeOverlay();
+    this.paintAchievementBadge();
   }
 
   /** DOM 命名输入（灰盒阶段实现；软键盘避让属 E5 真机项） */

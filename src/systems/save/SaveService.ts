@@ -303,6 +303,31 @@ export class SaveService {
     return this.data.achievements[achId] ?? { progress: 0, claimed: false };
   }
 
+  /** 登录日按 dateKey 去重。同一键再记，天数不变。 */
+  noteLoginDate(dateKey: string): number {
+    if (!dateKey) return this.getLoginDayCount();
+    const id = `login:${dateKey}`;
+    if (!this.data.achievements[id]) {
+      this.data.achievements[id] = { progress: 1, claimed: false };
+      this.policy.scheduleDebounced();
+    }
+    return this.getLoginDayCount();
+  }
+
+  getLoginDayCount(): number {
+    return Object.keys(this.data.achievements).filter((key) => key.startsWith('login:')).length;
+  }
+
+  /** 写入判定进度。已领取的锁定标记保持不动。 */
+  syncAchievementProgress(achId: string, progress: number): void {
+    if (achId.startsWith('login:')) return;
+    const rec = this.data.achievements[achId] ?? { progress: 0, claimed: false };
+    if (rec.progress === progress) return;
+    rec.progress = progress;
+    this.data.achievements[achId] = rec;
+    this.policy.scheduleDebounced();
+  }
+
   /** 领取即标记（发放走 addCoins/addItem 同源，economy §2.2；claimed 永久锁定） */
   claimAchievement(achId: string): boolean {
     const rec = this.data.achievements[achId] ?? { progress: 0, claimed: false };

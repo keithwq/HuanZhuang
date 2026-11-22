@@ -17,7 +17,7 @@
 | SPEC-0004 | 每日任务 | [SPEC-0004-daily-tasks.md](./SPEC-0004-daily-tasks.md) | IMPLEMENTING | PKG-04 | SPEC-0003 |
 | SPEC-0005 | 商店 | [SPEC-0005-shop.md](./SPEC-0005-shop.md) | IMPLEMENTING | PKG-05 | SPEC-0004 |
 | SPEC-0006 | 成就与经济模拟 | [SPEC-0006-achievements-sim.md](./SPEC-0006-achievements-sim.md) | IMPLEMENTING | PKG-06 | SPEC-0005 |
-| SPEC-0007 | 残留缺口 | [SPEC-0007-residual-partials.md](./SPEC-0007-residual-partials.md) | DRAFT | PKG-07 | SPEC-0006 |
+| SPEC-0007 | 残留缺口 | [SPEC-0007-residual-partials.md](./SPEC-0007-residual-partials.md) | IMPLEMENTING | PKG-07 | SPEC-0006 |
 | SPEC-0008 | 集成证据与音频 | [SPEC-0008-integration-audio.md](./SPEC-0008-integration-audio.md) | DRAFT | PKG-08 | SPEC-0007；两处业务口径未冻结 |
 
 上一包最后一张卡交接时，把下一份 SPEC 从 `DRAFT` 改为 `IMPLEMENTING`，并改 [NOW](../NOW.md)。不得跳号实施。

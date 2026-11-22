@@ -1,10 +1,10 @@
 # NOW
 
 - 流程： [SDD Operating Model](./SDD-OPERATING-MODEL.md)
-- 当前阶段： Sprint 2 任务链进行中，PKG-05 已交接，下一张是成就判定与领取
-- 当前卡： [PKG-06 CARD-01](./packages/PKG-06-achievements/CARD-01.md)
-- 当前 SPEC： [SPEC-0006](./specs/SPEC-0006-achievements-sim.md) · `IMPLEMENTING`
-- 上一交接： [PKG-05-CARD-03](./handoffs/PKG-05-CARD-03.md)
+- 当前阶段： Sprint 2 任务链进行中，PKG-06 已交接，下一张是常驻动效
+- 当前卡： [PKG-07 CARD-01](./packages/PKG-07-residuals/CARD-01.md)
+- 当前 SPEC： [SPEC-0007](./specs/SPEC-0007-residual-partials.md) · `IMPLEMENTING`
+- 上一交接： [PKG-06-CARD-03](./handoffs/PKG-06-CARD-03.md)
 - 最后更新： 2026-11-22
 
 ## 怎么继续

@@ -1,7 +1,7 @@
 # SPEC-0007: 残留缺口
 
 - Spec ID: SPEC-0007
-- Status: DRAFT
+- Status: IMPLEMENTING
 - Package: PKG-07
 - Last Updated: 2026-11-22
 
