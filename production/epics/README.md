@@ -86,6 +86,8 @@
 
 M1 已关闭。M2、M3 未出口。状态列取值只用 done / partial / todo；partial 格内写缺口与证据路径。验收口径未改。
 
+后续实施从 [docs/sdd/NOW.md](../../docs/sdd/NOW.md) 进入。任务包顺序见 [docs/sdd/packages/INDEX.md](../../docs/sdd/packages/INDEX.md)。当前卡是每日任务 PKG-04 CARD-01。
+
 原「32 Story / todo 8」与上表差 1：差在 E2-S06。该探针 Story 已在 `E2-playable-slice.md` 且状态为 done，旧合计未计入，未开工清单实际是 9 条。
 
 ---
