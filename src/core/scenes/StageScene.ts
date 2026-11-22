@@ -14,6 +14,7 @@ import { defaultItemForSlot } from '../../data/defaults';
 import { clothingById } from '../../data/items';
 import { ensureBodyTexture, ensureGreyTexture, releaseGreyTexture, textureKeyOf } from '../../systems/paperdoll/greybox';
 import { ViewSwap } from '../../systems/paperdoll/ViewSwap';
+import { readRoomStage } from '../../systems/room/stage';
 import type { OutfitMap } from '../../systems/save/types';
 
 interface LayerSprite extends Phaser.GameObjects.Image {
@@ -24,6 +25,8 @@ export class StageScene extends Phaser.Scene {
   private app!: AppContext;
   private layers = new Map<OutfitKey, LayerSprite>();
   private silhouetteWrap!: Phaser.GameObjects.Container;
+  /** 房间容器。默认隐藏，换装舞台仍是当前画面。 */
+  private roomWrap!: Phaser.GameObjects.Container;
   private viewSwap!: ViewSwap;
   private flipTween: Phaser.Tweens.Tween | null = null;
 
@@ -39,6 +42,10 @@ export class StageScene extends Phaser.Scene {
     const { model, save, tweenSvc } = this.app;
     this.cameras.main.setBackgroundColor('#f3eff9');
     this.silhouetteWrap = this.add.container(0, 0);
+    this.roomWrap = this.add.container(0, 0);
+    this.roomWrap.setName('room-stage');
+    this.roomWrap.setVisible(false);
+    this.roomWrap.setData('snapshot', readRoomStage(save));
 
     // 13 层固定 depth（正/背共用层位：depth 按当前视图表解析）
     for (const [key] of Object.entries(model.getOutfitSnapshot())) {
@@ -114,7 +121,6 @@ export class StageScene extends Phaser.Scene {
     // 转身按钮路径（paperdoll §2.2 路径 B，§9.3 触控冗余）——事件由 UiScene 转发
     bus.on('view:flipRequest', (p: { target: 'front' | 'back' }) => this.requestFlip(p.target));
 
-    void save;
     void tweenSvc;
     void FRONT_LAYERS;
     void BACK_LAYERS;
