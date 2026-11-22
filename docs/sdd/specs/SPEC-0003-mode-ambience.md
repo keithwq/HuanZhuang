@@ -1,7 +1,7 @@
 # SPEC-0003: 模式切换与氛围光
 
 - Spec ID: SPEC-0003
-- Status: IMPLEMENTING
+- Status: VERIFIED
 - Package: PKG-03
 - Last Updated: 2026-11-22
 

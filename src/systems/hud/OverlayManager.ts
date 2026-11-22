@@ -5,6 +5,13 @@
  */
 
 import { bus } from '../../core/bus';
+import { FEEDBACK_MS } from '../../core/constants/budget';
+import type { TweenHandle } from '../paperdoll/tweenSvc';
+import { TweenService } from '../paperdoll/tweenSvc';
+import { RoomModel } from '../room/model';
+import { interruptPlacement } from '../room/placement-ui';
+import type { SaveService } from '../save/SaveService';
+import { DrawerController } from './DrawerController';
 
 export type OverlayPage = 'look' | 'shop' | 'task' | 'achieve';
 
@@ -92,3 +99,152 @@ export class ModeManager {
     this.onSettled(target);
   }
 }
+
+/** 底部四入口。商店与成就保持不可用，直到各自的包。 */
+export const MODE_TAB_BAR = [
+  { label: '换装', enabled: true, mode: 'dress' },
+  { label: '房间', enabled: true, mode: 'room' },
+  { label: '商店', enabled: false, mode: null },
+  { label: '成就', enabled: false, mode: null },
+] as const;
+
+/** 房间容器只创建一次。再次进入复用原来的那个。 */
+export const singleRoomContainer = <T>(current: T | null, create: () => T): T => current ?? create();
+
+export interface ModeFrame {
+  visible: Mode;
+  fading: boolean;
+  from: Mode;
+  to: Mode;
+  /** 线性进度 0→1。落定后为 1。减敏没有中间帧。 */
+  t: number;
+}
+
+const modeSessions = new WeakMap<SaveService, ModeSwitchController>();
+
+/**
+ * 把 ModeManager 接到舞台与抽屉。
+ * 过渡时长交给 TweenService，上限 300ms；减敏不排过渡，直接落定。
+ * 打断沿用 ModeManager：过渡中的新点按立刻落定，不排队。
+ */
+export class ModeSwitchController {
+  private readonly room: RoomModel;
+  private readonly mm: ModeManager;
+  private drawer: DrawerController | null = null;
+  private mountRoom: () => void = () => {};
+  private listeners = new Set<(frame: ModeFrame) => void>();
+  private fadeFrom: Mode = 'dress';
+  private fadeTo: Mode = 'dress';
+
+  constructor(
+    save: SaveService,
+    private isReduced: () => boolean,
+    private tween: TweenService,
+  ) {
+    this.room = new RoomModel(save);
+    this.mm = new ModeManager(
+      (from, to) => this.begin(from, to),
+      () => this.finish(),
+    );
+  }
+
+  setRoomMounter(mountRoom: () => void): void {
+    this.mountRoom = mountRoom;
+  }
+
+  attachDrawer(drawer: DrawerController): void {
+    this.drawer = drawer;
+  }
+
+  roomModel(): RoomModel {
+    return this.room;
+  }
+
+  current(): Mode {
+    return this.mm.current();
+  }
+
+  isTransitioning(): boolean {
+    return this.mm.isTransitioning();
+  }
+
+  onFrame(listener: (frame: ModeFrame) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  /**
+   * 点底部页签。目标就是当前模式时不做事。
+   * 真的要离开时，先清掉摆放选中，再交给 ModeManager。
+   */
+  tap(target: Mode): boolean {
+    const changing = target !== this.mm.current() || this.mm.isTransitioning();
+    if (!changing) return false;
+    interruptPlacement(this.room);
+    return this.mm.request(target);
+  }
+
+  /** 由舞台帧循环推进。过渡走完才落定。 */
+  advance(dtMs: number): void {
+    const transitioning = this.mm.isTransitioning();
+    const handle = this.modeHandle();
+    this.tween.advance(dtMs);
+    if (!transitioning || !handle) return;
+    if (!handle.running || handle.elapsed >= handle.durationMs) {
+      this.mm.completeTransition();
+    }
+  }
+
+  frame(): ModeFrame {
+    if (!this.mm.isTransitioning()) {
+      const visible = this.mm.current();
+      return { visible, fading: false, from: visible, to: visible, t: 1 };
+    }
+    const handle = this.modeHandle();
+    const t = handle && handle.durationMs > 0 ? Math.min(1, handle.elapsed / handle.durationMs) : 0;
+    return { visible: this.fadeFrom, fading: true, from: this.fadeFrom, to: this.fadeTo, t };
+  }
+
+  private begin(from: Mode, to: Mode): void {
+    this.fadeFrom = from;
+    this.fadeTo = to;
+    this.mountRoom();
+    if (this.isReduced()) {
+      this.tween.killTweensOf('mode-stage', 'oneshot');
+      this.mm.completeTransition();
+      return;
+    }
+    this.tween.createOneShot('modeSwitch', 'mode-stage', FEEDBACK_MS.modeSwitch);
+    this.emit();
+  }
+
+  private finish(): void {
+    this.tween.killTweensOf('mode-stage', 'oneshot');
+    this.emit();
+    this.drawer?.resetDefault();
+  }
+
+  private emit(): void {
+    const frame = this.frame();
+    for (const listener of [...this.listeners]) listener(frame);
+  }
+
+  private modeHandle(): TweenHandle | undefined {
+    return this.tween.activeHandles().find((item) => item.target === 'mode-stage' && item.animId === 'modeSwitch');
+  }
+}
+
+export const modeSwitchFor = (
+  save: SaveService,
+  isReduced: () => boolean,
+  tween: TweenService,
+): ModeSwitchController => {
+  let found = modeSessions.get(save);
+  if (!found) {
+    found = new ModeSwitchController(save, isReduced, tween);
+    modeSessions.set(save, found);
+  }
+  return found;
+};

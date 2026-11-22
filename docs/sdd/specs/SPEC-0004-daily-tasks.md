@@ -1,7 +1,7 @@
 # SPEC-0004: 每日任务
 
 - Spec ID: SPEC-0004
-- Status: DRAFT
+- Status: IMPLEMENTING
 - Package: PKG-04
 - Last Updated: 2026-11-22
 

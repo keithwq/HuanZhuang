@@ -13,8 +13,8 @@
 | SPEC-BASELINE | 当前仓库基线 | [SPEC-BASELINE.md](./SPEC-BASELINE.md) | VERIFIED | PKG-00 | 无 |
 | SPEC-0001 | 房间舞台 | [SPEC-0001-room-stage.md](./SPEC-0001-room-stage.md) | VERIFIED | PKG-01 | SPEC-BASELINE |
 | SPEC-0002 | 摆放交互 | [SPEC-0002-placement.md](./SPEC-0002-placement.md) | VERIFIED | PKG-02 | SPEC-0001 |
-| SPEC-0003 | 模式切换与氛围光 | [SPEC-0003-mode-ambience.md](./SPEC-0003-mode-ambience.md) | IMPLEMENTING | PKG-03 | SPEC-0002 |
-| SPEC-0004 | 每日任务 | [SPEC-0004-daily-tasks.md](./SPEC-0004-daily-tasks.md) | DRAFT | PKG-04 | SPEC-0003 |
+| SPEC-0003 | 模式切换与氛围光 | [SPEC-0003-mode-ambience.md](./SPEC-0003-mode-ambience.md) | VERIFIED | PKG-03 | SPEC-0002 |
+| SPEC-0004 | 每日任务 | [SPEC-0004-daily-tasks.md](./SPEC-0004-daily-tasks.md) | IMPLEMENTING | PKG-04 | SPEC-0003 |
 | SPEC-0005 | 商店 | [SPEC-0005-shop.md](./SPEC-0005-shop.md) | DRAFT | PKG-05 | SPEC-0004 |
 | SPEC-0006 | 成就与经济模拟 | [SPEC-0006-achievements-sim.md](./SPEC-0006-achievements-sim.md) | DRAFT | PKG-06 | SPEC-0005 |
 | SPEC-0007 | 残留缺口 | [SPEC-0007-residual-partials.md](./SPEC-0007-residual-partials.md) | DRAFT | PKG-07 | SPEC-0006 |

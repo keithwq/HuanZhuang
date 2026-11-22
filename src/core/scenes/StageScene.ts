@@ -1,7 +1,7 @@
 /**
- * StageScene · 舞台：纸娃娃容器（StageScene）⇄ 房间容器（一活）
- * E1-S07/S08 渲染绑定 + E2-S01 手势（拖拽翻转判定区全宽×96px）。
- * 房间侧（S07）Sprint 2 接入；本 Sprint 仅换装舞台。
+ * StageScene · 舞台：纸娃娃容器 ⇄ 房间容器。
+ * 同一时刻只显示一个舞台。房间容器只创建一次，快速切换不另开一个。
+ * 过渡进度来自 ModeSwitchController（TweenService，≤300ms；减敏直切）。
  */
 
 import Phaser from 'phaser';
@@ -12,6 +12,7 @@ import { DRAWER, FEEDBACK_MS, VIEW_FLIP } from '../constants/budget';
 import { BACK_LAYERS, FRONT_LAYERS, type OutfitKey } from '../constants/slots';
 import { defaultItemForSlot } from '../../data/defaults';
 import { clothingById } from '../../data/items';
+import { modeSwitchFor, singleRoomContainer, type ModeSwitchController } from '../../systems/hud/OverlayManager';
 import { ensureBodyTexture, ensureGreyTexture, releaseGreyTexture, textureKeyOf } from '../../systems/paperdoll/greybox';
 import { ViewSwap } from '../../systems/paperdoll/ViewSwap';
 import { readRoomStage } from '../../systems/room/stage';
@@ -25,8 +26,11 @@ export class StageScene extends Phaser.Scene {
   private app!: AppContext;
   private layers = new Map<OutfitKey, LayerSprite>();
   private silhouetteWrap!: Phaser.GameObjects.Container;
-  /** 房间容器。默认隐藏，换装舞台仍是当前画面。 */
-  private roomWrap!: Phaser.GameObjects.Container;
+  /** 房间容器。只创建一次，换装时隐藏。 */
+  private roomWrap: Phaser.GameObjects.Container | null = null;
+  private roomFill: Phaser.GameObjects.Rectangle | null = null;
+  private modes!: ModeSwitchController;
+  private modeApplied: string | null = null;
   private viewSwap!: ViewSwap;
   private flipTween: Phaser.Tweens.Tween | null = null;
 
@@ -42,10 +46,14 @@ export class StageScene extends Phaser.Scene {
     const { model, save, tweenSvc } = this.app;
     this.cameras.main.setBackgroundColor('#f3eff9');
     this.silhouetteWrap = this.add.container(0, 0);
-    this.roomWrap = this.add.container(0, 0);
-    this.roomWrap.setName('room-stage');
-    this.roomWrap.setVisible(false);
-    this.roomWrap.setData('snapshot', readRoomStage(save));
+    this.modes = modeSwitchFor(save, () => this.app.reducedMotion(), tweenSvc);
+    const mountRoom = (): void => {
+      this.roomWrap = singleRoomContainer(this.roomWrap, () => this.createRoomWrap());
+    };
+    this.modes.setRoomMounter(mountRoom);
+    mountRoom();
+    this.modes.onFrame(() => this.applyModeFrame());
+    this.applyModeFrame();
 
     // 13 层固定 depth（正/背共用层位：depth 按当前视图表解析）
     for (const [key] of Object.entries(model.getOutfitSnapshot())) {
@@ -116,6 +124,8 @@ export class StageScene extends Phaser.Scene {
     // 帧循环：ViewSwap 时钟推进
     this.events.on(Phaser.Scenes.Events.UPDATE, (_: unknown, delta: number) => {
       this.viewSwap.advance(delta);
+      this.modes.advance(delta);
+      this.applyModeFrame();
     });
 
     // 转身按钮路径（paperdoll §2.2 路径 B，§9.3 触控冗余）——事件由 UiScene 转发
@@ -128,8 +138,62 @@ export class StageScene extends Phaser.Scene {
     void VIEW_FLIP;
   }
 
-  /** 翻转请求（双路径共用） */
+  /** 房间灰盒只建一次。真图与氛围光不在这张卡。 */
+  private createRoomWrap(): Phaser.GameObjects.Container {
+    const wrap = this.add.container(0, 0);
+    wrap.setName('room-stage');
+    const w = Math.max(this.scale.width, 1);
+    const h = Math.max(this.scale.height, 1);
+    this.roomFill = this.add.rectangle(w / 2, h / 2, w, h, 0xe4d7c4);
+    this.roomFill.setName('room-stage-fill');
+    wrap.add(this.roomFill);
+    wrap.setData('snapshot', readRoomStage(this.app.save));
+    this.scale.on('resize', this.onStageResize, this);
+    return wrap;
+  }
+
+  private onStageResize = (): void => {
+    if (!this.roomFill) return;
+    const w = Math.max(this.scale.width, 1);
+    const h = Math.max(this.scale.height, 1);
+    this.roomFill.setPosition(w / 2, h / 2);
+    this.roomFill.setSize(w, h);
+  };
+
+  /** 落定后只留一个舞台。过渡中按线性透明度交叉，不另做曲线。 */
+  private applyModeFrame(): void {
+    const frame = this.modes.frame();
+    const key = frame.fading ? `f:${frame.from}:${frame.to}:${frame.t}` : `s:${frame.visible}`;
+    if (key === this.modeApplied) return;
+    this.modeApplied = key;
+    const room = this.roomWrap;
+    if (!room) {
+      this.silhouetteWrap.setVisible(frame.visible !== 'room').setAlpha(1);
+      return;
+    }
+    if (!frame.fading) {
+      this.tweens.killTweensOf(this.silhouetteWrap);
+      this.tweens.killTweensOf(room);
+      this.silhouetteWrap.setVisible(frame.visible === 'dress').setAlpha(1);
+      room.setVisible(frame.visible === 'room').setAlpha(1);
+      if (frame.visible === 'room') {
+        room.setData('snapshot', readRoomStage(this.app.save, this.modes.roomModel()));
+      }
+      return;
+    }
+    const incoming = frame.to === 'room' ? room : this.silhouetteWrap;
+    const outgoing = frame.from === 'room' ? room : this.silhouetteWrap;
+    if (frame.t === 0) {
+      this.tweens.killTweensOf(this.silhouetteWrap);
+      this.tweens.killTweensOf(room);
+    }
+    incoming.setVisible(true).setAlpha(frame.t);
+    if (incoming !== outgoing) outgoing.setVisible(true).setAlpha(1 - frame.t);
+  }
+
+  /** 翻转请求（双路径共用）。房间舞台显示时不转隐藏的纸娃娃。 */
   private requestFlip(target: 'front' | 'back'): void {
+    if (this.modes.current() !== 'dress' || this.modes.isTransitioning()) return;
     this.viewSwap.request(target);
   }
 

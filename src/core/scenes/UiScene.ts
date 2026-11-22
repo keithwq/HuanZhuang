@@ -15,10 +15,13 @@ import { filterItems } from '../../systems/wardrobe/filter';
 import { TryonController } from '../../systems/wardrobe/tryonController';
 import { LookPanelModel, validateLookName } from '../../systems/looks/lookPanel';
 import { createApplyFlow } from '../../systems/looks/applyFlow';
-import { OverlayManager } from '../../systems/hud/OverlayManager';
+import { MODE_TAB_BAR, OverlayManager, modeSwitchFor, type Mode, type ModeSwitchController } from '../../systems/hud/OverlayManager';
 import { ensureGreyTexture } from '../../systems/paperdoll/greybox';
 import type { OutfitKey } from '../constants/slots';
 import { clothingById, type ClothingItem } from '../../data/items';
+import type { FurnCategory } from '../../data/furniture';
+import { FURNITURE_DRAWER_TABS, readFurnitureDrawer } from '../../systems/room/drawer';
+import { enterPlacementFromDrawer } from '../../systems/room/placement-ui';
 
 const COLORS = { bg: 0xf3eff9, cloud: 0xdce2f2, aster: 0x8268c6, night: 0x3a3358 };
 
@@ -39,6 +42,11 @@ export class UiScene extends Phaser.Scene {
   private toastText: Phaser.GameObjects.Text | null = null;
   // E3-S01/S02 造型面板（look overlay）
   private overlayMgr = new OverlayManager();
+  private modes!: ModeSwitchController;
+  private modeTitle: Phaser.GameObjects.Text | null = null;
+  private modeTabLabels = new Map<string, Phaser.GameObjects.Text>();
+  private shownMode: Mode = 'dress';
+  private furnTab: FurnCategory = 'L';
   private lookPanel!: LookPanelModel;
   private applyLook!: ReturnType<typeof createApplyFlow>;
   private lookLayer: Phaser.GameObjects.Container | null = null;
@@ -57,6 +65,12 @@ export class UiScene extends Phaser.Scene {
     this.lookPanel = new LookPanelModel(this.app.save);
     this.applyLook = createApplyFlow(this.app.model, this.app.save);
     this.coinValue = this.app.save.getCoins();
+    this.modes = modeSwitchFor(this.app.save, () => this.app.reducedMotion(), this.app.tweenSvc);
+    this.modes.onFrame((frame) => {
+      this.shownMode = frame.fading ? frame.to : frame.visible;
+      if (!frame.fading && frame.visible === 'room') this.furnTab = 'L';
+      this.paintModeChrome();
+    });
 
     // 货币栏镜像（hud §6：余额变更事件刷新；重建场景对象时以 coinValue 复原）
     bus.on('coins:changed', (p) => {
@@ -92,7 +106,7 @@ export class UiScene extends Phaser.Scene {
 
     // 顶导 88：模式标题 + 货币栏 + 转身按钮
     this.add.rectangle(L.logicalW / 2, L.safeTop + 44, L.logicalW, 88, COLORS.cloud).setOrigin(0.5);
-    this.add.text(24, L.safeTop + 44, '更衣室', this.font(44, true)).setOrigin(0, 0.5);
+    this.modeTitle = this.add.text(24, L.safeTop + 44, '更衣室', this.font(44, true)).setOrigin(0, 0.5);
     this.coinText = this.add
       .text(L.logicalW - 200, L.safeTop + 44, `✦ ${this.coinValue}`, this.font(28))
       .setOrigin(0, 0.5)
@@ -120,28 +134,26 @@ export class UiScene extends Phaser.Scene {
     // 舞台底部边界：顶导下沿 + 舞台高
     const stageBottom = L.safeTop + L.topNavH + L.stageH;
 
-    // 标签栏 96（Sprint 1：换装可用，其余灰态摇头——房间/商店/成就 Sprint 2/3 接入）
+    // 标签栏 96。换装与房间走 ModeManager；商店与成就仍灰态摇头。
     const tabBarY = stageBottom + L.safeBottom + 48;
-    const tabs: { label: string; enabled: boolean }[] = [
-      { label: '换装', enabled: true },
-      { label: '房间', enabled: false },
-      { label: '商店', enabled: false },
-      { label: '成就', enabled: false },
-    ];
-    tabs.forEach((t, i) => {
+    this.modeTabLabels.clear();
+    MODE_TAB_BAR.forEach((tab, i) => {
       const x = (i + 0.5) * (L.logicalW / 4);
       const txt = this.add
-        .text(x, tabBarY, t.label, this.font(28))
+        .text(x, tabBarY, tab.label, this.font(28))
         .setOrigin(0.5)
-        .setColor(t.enabled ? '#3a3358' : '#c9c0b4')
         .setInteractive({ useHandCursor: true });
+      this.modeTabLabels.set(tab.label, txt);
       txt.on('pointerup', () => {
-        if (!t.enabled) {
+        if (!tab.enabled || tab.mode === null) {
           this.headShake(txt, x, tabBarY); // 误触摇头 200ms（art §8.1 柔性错误）
           this.toast('这一格还在整理中…');
+          return;
         }
+        this.modes.tap(tab.mode);
       });
     });
+    this.paintModeChrome();
 
     // 抽屉（两档 45/70，把手拖拽 + 速度吸附）
     this.drawer = new DrawerController(L.stageH, (_tier: DrawerTier, h: number) => {
@@ -149,6 +161,7 @@ export class UiScene extends Phaser.Scene {
       this.renderTabs(stageBottom - h);
       this.renderGrid();
     });
+    this.modes.attachDrawer(this.drawer);
     this.drawerRect = this.add
       .rectangle(L.logicalW / 2, stageBottom - L.drawerDefaultH / 2, L.logicalW, L.drawerDefaultH, COLORS.cloud)
       .setOrigin(0.5);
@@ -207,24 +220,42 @@ export class UiScene extends Phaser.Scene {
     let startH = 0;
     let startT = 0;
     h.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (this.modes.isTransitioning()) return;
       this.drawer.beginDrag();
       startH = this.drawer.current().height;
       startT = p.event.timeStamp;
     });
     h.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (!p.isDown) return;
+      if (this.modes.isTransitioning() || !p.isDown) return;
       const delta = startH - (p.y - p.downY); // 上拉为增
       this.drawer.dragTo(startH + delta);
     });
     h.on('pointerup', (p: Phaser.Input.Pointer) => {
+      if (this.modes.isTransitioning()) return;
       const dt = Math.max(1, p.event.timeStamp - startT);
       const dy = -(p.y - p.downY);
       this.drawer.endDrag(Math.abs(dy) / dt, dy > 0);
     });
   }
 
-  /** 页签条：G1~G8 横排点按路径（GAP-4 分组；横向滑动路径 Sprint 2 手势区接入） */
+  /** 进入模式后刷新标题和底部页签选中色。 */
+  private paintModeChrome(): void {
+    if (!this.modes) return;
+    this.modeTitle?.setText(this.shownMode === 'room' ? '房间' : '更衣室');
+    for (const tab of MODE_TAB_BAR) {
+      const txt = this.modeTabLabels.get(tab.label);
+      if (!txt?.active) continue;
+      const selected = tab.enabled && tab.mode === this.shownMode;
+      txt.setColor(!tab.enabled ? '#c9c0b4' : selected ? '#8268c6' : '#3a3358');
+    }
+  }
+
+  /** 页签条：换装是衣柜分组，房间是家具类目。 */
   private renderTabs(drawerTopY: number): void {
+    if (this.modes.current() === 'room') {
+      this.renderFurnitureTabs(drawerTopY);
+      return;
+    }
     const layer = this.tabLayer;
     if (!layer) return;
     layer.removeAll(true);
@@ -241,6 +272,7 @@ export class UiScene extends Phaser.Scene {
         .setPadding(8, 2, 8, 2)
         .setInteractive({ useHandCursor: true });
       txt.on('pointerup', () => {
+        if (this.modes.isTransitioning()) return;
         this.activeGroup = g.id;
         bus.emit('wardrobe:tabChange', { groupId: g.id }); // onTabChange(组 ID)——GAP-4 注记
         this.renderTabs(drawerTopY);
@@ -250,8 +282,38 @@ export class UiScene extends Phaser.Scene {
     });
   }
 
+  private renderFurnitureTabs(drawerTopY: number): void {
+    const layer = this.tabLayer;
+    if (!layer) return;
+    layer.removeAll(true);
+    const L = this.layout;
+    const tabY = drawerTopY + DRAWER.handleHeightPx + 24;
+    const gap = (L.logicalW - 24 * 2) / FURNITURE_DRAWER_TABS.length;
+    FURNITURE_DRAWER_TABS.forEach((tab, i) => {
+      const active = tab === this.furnTab;
+      const txt = this.add
+        .text(24 + gap * (i + 0.5), tabY, FURN_TAB_NAME[tab], this.font(24))
+        .setOrigin(0.5)
+        .setColor(active ? '#ffffff' : '#3a3358')
+        .setBackgroundColor(active ? '#8268c6' : 'rgba(0,0,0,0)')
+        .setPadding(8, 2, 8, 2)
+        .setInteractive({ useHandCursor: true });
+      txt.on('pointerup', () => {
+        if (this.modes.isTransitioning()) return;
+        this.furnTab = tab;
+        this.renderFurnitureTabs(drawerTopY);
+        this.renderGrid();
+      });
+      layer.add(txt);
+    });
+  }
+
   /** 物品网格：卸下卡 + 已拥有卡片（组内次序 ux-spec §2.1；104×104 卡片，§6.2） */
   private renderGrid(): void {
+    if (this.modes.current() === 'room') {
+      this.renderFurnitureGrid();
+      return;
+    }
     if (!this.gridLayer) return;
     const gridLayer = this.gridLayer;
     gridLayer.removeAll(true);
@@ -318,7 +380,10 @@ export class UiScene extends Phaser.Scene {
 
       if (entry.kind === 'unequip') {
         rect.setInteractive({ useHandCursor: true });
-        rect.on('pointerup', () => this.ctrl.tapUnequip(entry.slot));
+        rect.on('pointerup', () => {
+          if (this.modes.isTransitioning()) return;
+          this.ctrl.tapUnequip(entry.slot);
+        });
         return;
       }
       // 穿着角标：星紫粗描边（角标差异承载状态，§9.2）
@@ -326,6 +391,7 @@ export class UiScene extends Phaser.Scene {
       rect.setInteractive({ useHandCursor: true });
       label.setInteractive({ useHandCursor: true });
       const tap = (): void => {
+        if (this.modes.isTransitioning()) return;
         const ev = this.ctrl.tapCard(entry.item);
         if (ev.type === 'lightFeedback') this.headShake(rect, cx, cy); // 当前穿着：轻反馈 100ms 量级
         if (ev.type === 'btmOccludedCaption') this.toast('当前被连衣裙遮蔽'); // 非阻塞 Caption（wardrobe §2.3）
@@ -335,6 +401,47 @@ export class UiScene extends Phaser.Scene {
       label.on('pointerup', tap);
     });
     void FEEDBACK_MS;
+  }
+
+  /** 家具抽屉：已拥有、按类目。点卡片只进入摆放，不在这里落位。 */
+  private renderFurnitureGrid(): void {
+    if (!this.gridLayer) return;
+    const gridLayer = this.gridLayer;
+    gridLayer.removeAll(true);
+    const L = this.layout;
+    const page = readFurnitureDrawer(this.app.save, this.furnTab);
+    const drawerH = this.drawer.current().height;
+    const drawerTopY = L.safeTop + L.topNavH + L.stageH - drawerH;
+    const top = drawerTopY + DRAWER.handleHeightPx + 56;
+    if (page.items.length === 0) {
+      gridLayer.add(
+        this.add.text(L.logicalW / 2, top, '还没有这一类家具', this.font(22)).setOrigin(0.5).setColor('#2e2a45'),
+      );
+      return;
+    }
+    const placing = this.modes.roomModel().isPlacing();
+    const cols = 4;
+    const cardW = 104;
+    const gapX = 16;
+    const startX = 24 + cardW / 2;
+    const maxRows = Math.max(1, Math.floor((drawerH - DRAWER.handleHeightPx - 70) / (cardW + gapX)));
+    page.items.slice(0, cols * maxRows).forEach((item, i) => {
+      const cx = startX + (i % cols) * (cardW + gapX);
+      const cy = top + Math.floor(i / cols) * (cardW + gapX) + cardW / 2;
+      const rect = this.add.rectangle(cx, cy, cardW, cardW, COLORS.bg, 1).setStrokeStyle(placing === item.furnId ? 4 : 2, placing === item.furnId ? COLORS.aster : COLORS.night);
+      gridLayer.add(rect);
+      const label = this.add.text(cx, cy, shortName(item.name), this.font(20)).setOrigin(0.5).setColor('#2e2a45');
+      gridLayer.add(label);
+      rect.setInteractive({ useHandCursor: true });
+      label.setInteractive({ useHandCursor: true });
+      const tap = (): void => {
+        if (this.modes.isTransitioning()) return;
+        enterPlacementFromDrawer(this.modes.roomModel(), item.furnId);
+        this.renderGrid();
+      };
+      rect.on('pointerup', tap);
+      label.on('pointerup', tap);
+    });
   }
 
   // ---------------------------------------------------------------- E3 造型面板覆盖层
@@ -576,5 +683,13 @@ export class UiScene extends Phaser.Scene {
     this.renderLookCards();
   }
 }
+
+const FURN_TAB_NAME: Record<FurnCategory, string> = {
+  L: '大件',
+  M: '中件',
+  S: '小件',
+  W: '壁饰',
+  R: '地垫',
+};
 
 const shortName = (name: string): string => (name.length > 8 ? `${name.slice(0, 7)}…` : name);

@@ -6,9 +6,12 @@
  * 抽屉只挂在快照上，不改上面的层排序。
  */
 
+import { bus } from '../../core/bus';
 import { ROOM_ANCHORS, type RoomAnchor } from '../../core/constants/room-anchors';
 import { furnitureById, isCurtainOnly } from '../../data/furniture';
+import { texmem } from '../../texmem/accountant';
 import type { SaveService } from '../save/SaveService';
+import { settledAmbienceLayers, type AmbienceLightLayer } from './ambience';
 import { readFurnitureDrawer, type FurnitureDrawerPage } from './drawer';
 import type { RoomModel } from './model';
 import { readPlacementHints, type PlacementHintState } from './placement-ui';
@@ -43,6 +46,8 @@ export interface RoomStageState {
   drawer: FurnitureDrawerPage;
   /** 未进入摆放时为空。点亮集合来自 RoomModel，不另算相容规则。 */
   hints: PlacementHintState;
+  /** 三档灰盒光。亮度跟存档棘轮，不按当前件数重算。 */
+  lights: readonly AmbienceLightLayer[];
 }
 
 const layerNameFor = (anchor: RoomAnchor, furnId: string): RoomStageLayerName => {
@@ -89,5 +94,48 @@ export const readRoomStage = (save: SaveService, room?: RoomModel): RoomStageSta
     })),
     drawer: readFurnitureDrawer(save, 'L'),
     hints: room ? readPlacementHints(room) : { active: false, furnId: null, anchorIds: [] },
+    lights: settledAmbienceLayers(room ? room.ambienceTier() : save.getAmbienceLevel()),
   };
 };
+
+const roomGreyKeys = new Set<string>();
+
+export interface RoomTextureHost {
+  textures: {
+    exists(key: string): boolean;
+    remove(key: string): void;
+  };
+}
+
+let textureHost: RoomTextureHost | null = null;
+
+/** 本舞台生成的灰盒纹理键。离开房间时只释放这里登记过的键。 */
+export const registerRoomGreyTexture = (key: string): void => {
+  roomGreyKeys.add(key);
+};
+
+export const bindRoomTextureHost = (host: RoomTextureHost): void => {
+  textureHost = host;
+};
+
+/** 释放本舞台登记的灰盒纹理，并清掉登记。换装纹理不在这张表里。 */
+export const releaseRoomGreyTextures = (): string[] => {
+  const keys = [...roomGreyKeys];
+  roomGreyKeys.clear();
+  for (const key of keys) {
+    if (textureHost?.textures.exists(key)) textureHost.textures.remove(key);
+    if (texmem.has(key)) texmem.release(key);
+  }
+  return keys;
+};
+
+const releaseRoomTexturesOnDress = (payload: { mode: 'dress' | 'room' }): void => {
+  if (payload.mode === 'dress') releaseRoomGreyTextures();
+};
+
+/** 切回换装时释放。测试若清空了总线，需要再挂一次。 */
+export const attachRoomTextureRelease = (): void => {
+  bus.on('hud:modeChange', releaseRoomTexturesOnDress);
+};
+
+attachRoomTextureRelease();
