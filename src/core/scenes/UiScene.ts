@@ -15,13 +15,17 @@ import { filterItems } from '../../systems/wardrobe/filter';
 import { TryonController } from '../../systems/wardrobe/tryonController';
 import { LookPanelModel, validateLookName } from '../../systems/looks/lookPanel';
 import { createApplyFlow } from '../../systems/looks/applyFlow';
-import { MODE_TAB_BAR, OverlayManager, modeSwitchFor, type Mode, type ModeSwitchController } from '../../systems/hud/OverlayManager';
+import { MODE_TAB_BAR, OverlayManager, modeSwitchFor, openShopOverlay, type Mode, type ModeSwitchController } from '../../systems/hud/OverlayManager';
 import { ensureGreyTexture } from '../../systems/paperdoll/greybox';
 import type { OutfitKey } from '../constants/slots';
 import { clothingById, type ClothingItem } from '../../data/items';
 import type { FurnCategory } from '../../data/furniture';
 import { FURNITURE_DRAWER_TABS, readFurnitureDrawer } from '../../systems/room/drawer';
 import { enterPlacementFromDrawer } from '../../systems/room/placement-ui';
+import { drawDailyTasks } from '../../systems/daily/draw';
+import { claimDailyTask, dailyBadgeText, readTaskList } from '../../systems/daily/progress';
+import { readShopPage, revealShopDetail, type ShopTabId } from '../../systems/shop/catalog';
+import { purchaseShopItem } from '../../systems/shop/purchase';
 
 const COLORS = { bg: 0xf3eff9, cloud: 0xdce2f2, aster: 0x8268c6, night: 0x3a3358 };
 
@@ -50,6 +54,13 @@ export class UiScene extends Phaser.Scene {
   private lookPanel!: LookPanelModel;
   private applyLook!: ReturnType<typeof createApplyFlow>;
   private lookLayer: Phaser.GameObjects.Container | null = null;
+  private taskLayer: Phaser.GameObjects.Container | null = null;
+  private taskBadge: Phaser.GameObjects.Text | null = null;
+  private shopLayer: Phaser.GameObjects.Container | null = null;
+  private shopClip: Phaser.GameObjects.Graphics | null = null;
+  private shopTab: ShopTabId = 'clothing';
+  private shopScroll = 0;
+  private shopDetailId: string | null = null;
   private nameInput: HTMLInputElement | null = null;
 
   constructor() {
@@ -76,10 +87,17 @@ export class UiScene extends Phaser.Scene {
     bus.on('coins:changed', (p) => {
       this.coinValue = p.coins;
       this.coinText?.setText(`✦ ${p.coins}`);
+      this.paintTaskBadge();
+    });
+    bus.on('stat:bump', () => this.paintTaskBadge());
+    bus.on('day:flip', () => {
+      this.paintTaskBadge();
+      if (this.overlayMgr.current() === 'task') this.paintTaskOverlay();
     });
     // toast 通道（save 降级一次性提示，local-save §5.1）
     bus.on('save:degraded', () => this.toast('当前浏览器模式无法保存进度'));
 
+    drawDailyTasks(this.app.save);
     this.relayout();
     this.scale.on('resize', () => this.relayout());
 
@@ -98,10 +116,17 @@ export class UiScene extends Phaser.Scene {
       safeTop: 0,
       safeBottom: 0,
     });
+    const taskOpen = this.overlayMgr.current() === 'task';
+    const shopOpen = this.overlayMgr.current() === 'shop';
     this.children.removeAll(true);
     this.coinText = null;
     this.gridLayer = null;
     this.tabLayer = null;
+    this.taskBadge = null;
+    this.taskLayer = null;
+    this.shopLayer = null;
+    this.shopClip?.destroy();
+    this.shopClip = null;
     const L = this.layout;
 
     // 顶导 88：模式标题 + 货币栏 + 转身按钮
@@ -131,10 +156,26 @@ export class UiScene extends Phaser.Scene {
       if (!this.overlayMgr.isOpen()) this.renderLookOverlay();
     });
 
+    const taskBtn = this.add
+      .text(L.logicalW - 310, L.safeTop + 44, '任务', this.font(28))
+      .setOrigin(1, 0.5)
+      .setName('task-entry')
+      .setInteractive(
+        new Phaser.Geom.Rectangle(-120, -24, 128, 48),
+        Phaser.Geom.Rectangle.Contains,
+      );
+    taskBtn.on('pointerup', () => this.openTaskOverlay());
+    this.taskBadge = this.add
+      .text(L.logicalW - 298, L.safeTop + 44, '', this.font(22))
+      .setOrigin(0, 0.5)
+      .setColor('#8268c6')
+      .setName('task-badge');
+    this.paintTaskBadge();
+
     // 舞台底部边界：顶导下沿 + 舞台高
     const stageBottom = L.safeTop + L.topNavH + L.stageH;
 
-    // 标签栏 96。换装与房间走 ModeManager；商店与成就仍灰态摇头。
+    // 标签栏 96。换装与房间走 ModeManager；商店打开目录；成就仍灰态摇头。
     const tabBarY = stageBottom + L.safeBottom + 48;
     this.modeTabLabels.clear();
     MODE_TAB_BAR.forEach((tab, i) => {
@@ -142,9 +183,15 @@ export class UiScene extends Phaser.Scene {
       const txt = this.add
         .text(x, tabBarY, tab.label, this.font(28))
         .setOrigin(0.5)
+        .setName(`mode-tab-${tab.label}`)
         .setInteractive({ useHandCursor: true });
+      if (tab.label === '商店') txt.setDepth(60);
       this.modeTabLabels.set(tab.label, txt);
       txt.on('pointerup', () => {
+        if (tab.label === '商店') {
+          this.showShop();
+          return;
+        }
         if (!tab.enabled || tab.mode === null) {
           this.headShake(txt, x, tabBarY); // 误触摇头 200ms（art §8.1 柔性错误）
           this.toast('这一格还在整理中…');
@@ -175,6 +222,294 @@ export class UiScene extends Phaser.Scene {
     this.gridLayer = this.add.container(0, 0);
     this.renderTabs(stageBottom - L.drawerDefaultH);
     this.renderGrid();
+    if (taskOpen) this.paintTaskOverlay();
+    if (shopOpen) this.paintShopOverlay();
+  }
+
+  private paintTaskBadge(): void {
+    const badge = this.taskBadge;
+    if (!badge) return;
+    const label = dailyBadgeText(this.app.save);
+    if (label === null) {
+      badge.setVisible(false);
+      return;
+    }
+    badge.setVisible(true);
+    badge.setText(label);
+  }
+
+  private openTaskOverlay(): void {
+    if (this.overlayMgr.current() === 'task') {
+      this.paintTaskOverlay();
+      return;
+    }
+    if (this.overlayMgr.openOverlay('task') === null) return;
+    this.paintTaskOverlay();
+  }
+
+  private paintTaskOverlay(): void {
+    if (this.overlayMgr.current() !== 'task') return;
+    drawDailyTasks(this.app.save);
+    this.taskLayer?.destroy(true);
+    const L = this.layout;
+    const layer = this.add.container(0, 0).setDepth(50);
+    this.taskLayer = layer;
+
+    const mask = this.add
+      .rectangle(L.logicalW / 2, L.logicalH / 2, L.logicalW, L.logicalH, 0x2e2a45, 0.45)
+      .setInteractive({ useHandCursor: true });
+    mask.on('pointerup', () => this.closeTaskOverlay());
+    layer.add(mask);
+
+    const closeBtn = this.add
+      .text(24, L.safeTop + L.topNavH + 24, '✕', this.font(32))
+      .setOrigin(0, 0)
+      .setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerup', () => this.closeTaskOverlay());
+    layer.add(closeBtn);
+
+    layer.add(
+      this.add.text(L.logicalW / 2, L.safeTop + L.topNavH + 28, '每日任务', this.font(36, true)).setOrigin(0.5, 0),
+    );
+
+    if (readTaskList(this.app.save).some((row) => row.claimed)) {
+      const goShop = this.add
+        .text(L.logicalW - 48, L.safeTop + L.topNavH + 28, '去商店', this.font(28))
+        .setOrigin(1, 0)
+        .setName('task-go-shop')
+        .setInteractive({ useHandCursor: true });
+      goShop.on('pointerup', () => this.showShop());
+      layer.add(goShop);
+    }
+
+    readTaskList(this.app.save).forEach((row, index) => {
+      const y = L.safeTop + L.topNavH + 110 + index * 128;
+      const body = this.add.text(48, y, row.text, this.font(24)).setOrigin(0, 0);
+      body.setWordWrapWidth(440);
+      layer.add(body);
+      const shown = Math.min(row.progress, row.goal);
+      layer.add(this.add.text(48, y + 72, `${shown}/${row.goal}`, this.font(22)).setOrigin(0, 0).setColor('#8268c6'));
+      if (row.claimable) {
+        const claim = this.add
+          .text(L.logicalW - 48, y + 36, '领取', this.font(28))
+          .setOrigin(1, 0.5)
+          .setInteractive({ useHandCursor: true });
+        claim.on('pointerup', () => {
+          claimDailyTask(this.app.save, row.taskId);
+          this.paintTaskBadge();
+          this.paintTaskOverlay();
+        });
+        layer.add(claim);
+      } else if (row.claimed) {
+        layer.add(
+          this.add.text(L.logicalW - 48, y + 36, '已完成', this.font(24)).setOrigin(1, 0.5).setColor('#8268c6'),
+        );
+      }
+    });
+  }
+
+  private closeTaskOverlay(): void {
+    this.taskLayer?.destroy(true);
+    this.taskLayer = null;
+    if (this.overlayMgr.current() === 'task') this.overlayMgr.closeOverlay();
+    this.paintTaskBadge();
+  }
+
+  /** 底部「商店」。先收起造型或任务，再挂商店一层。 */
+  private showShop(): void {
+    const current = this.overlayMgr.current();
+    if (current === 'look') this.closeLookOverlay();
+    else if (current === 'task') this.closeTaskOverlay();
+    if (this.overlayMgr.current() === 'shop') {
+      this.paintShopOverlay();
+      this.paintModeChrome();
+      return;
+    }
+    openShopOverlay(this.overlayMgr);
+    this.paintShopOverlay();
+    this.paintModeChrome();
+  }
+
+  private paintShopOverlay(): void {
+    if (this.overlayMgr.current() !== 'shop') return;
+    this.shopLayer?.destroy(true);
+    this.shopClip?.destroy();
+    this.shopClip = null;
+    const L = this.layout;
+    const layer = this.add.container(0, 0).setDepth(50);
+    this.shopLayer = layer;
+    const page = readShopPage(this.shopTab);
+
+    const mask = this.add
+      .rectangle(L.logicalW / 2, L.logicalH / 2, L.logicalW, L.logicalH, 0x2e2a45, 0.45)
+      .setInteractive({ useHandCursor: true });
+    layer.add(mask);
+
+    const closeBtn = this.add
+      .text(24, L.safeTop + L.topNavH + 24, '✕', this.font(32))
+      .setOrigin(0, 0)
+      .setName('shop-close')
+      .setInteractive({ useHandCursor: true });
+    closeBtn.on('pointerup', () => this.closeShopOverlay());
+    layer.add(closeBtn);
+    layer.add(
+      this.add.text(L.logicalW / 2, L.safeTop + L.topNavH + 28, '商店', this.font(36, true)).setOrigin(0.5, 0),
+    );
+
+    const tabs: ShopTabId[] = ['clothing', 'furniture'];
+    tabs.forEach((id, index) => {
+      const active = id === this.shopTab;
+      const label = id === 'clothing' ? '服装' : '家具';
+      const txt = this.add
+        .text(180 + index * 180, L.safeTop + L.topNavH + 88, label, this.font(28))
+        .setOrigin(0.5, 0)
+        .setName(`shop-tab-${id}`)
+        .setColor(active ? '#ffffff' : '#3a3358')
+        .setBackgroundColor(active ? '#8268c6' : 'rgba(0,0,0,0)')
+        .setPadding(16, 6, 16, 6)
+        .setInteractive({ useHandCursor: true });
+      txt.on('pointerup', () => {
+        if (this.shopTab === id) return;
+        this.shopTab = id;
+        this.shopScroll = 0;
+        this.shopDetailId = null;
+        this.paintShopOverlay();
+      });
+      layer.add(txt);
+    });
+
+    const detail = this.shopDetailId
+      ? revealShopDetail(this.overlayMgr, this.app.save, this.shopDetailId)
+      : null;
+    if (this.shopDetailId && !detail) this.shopDetailId = null;
+    const detailBlock = detail ? 168 : 0;
+    if (detail) {
+      const panelY = L.safeTop + L.topNavH + 148;
+      const panel = this.add.rectangle(L.logicalW / 2, panelY + 70, L.logicalW - 48, 148, COLORS.bg, 1).setStrokeStyle(2, COLORS.aster);
+      panel.setName('shop-detail');
+      layer.add(panel);
+      const back = this.add
+        .text(48, panelY + 16, '返回', this.font(22))
+        .setOrigin(0, 0)
+        .setName('shop-detail-back')
+        .setInteractive({ useHandCursor: true });
+      back.on('pointerup', () => {
+        this.shopDetailId = null;
+        this.paintShopOverlay();
+      });
+      layer.add(back);
+      layer.add(this.add.text(48, panelY + 52, detail.name, this.font(28, true)).setOrigin(0, 0));
+      const tagLine = detail.tags.length > 0 ? detail.tags.join(' ') : detail.series;
+      layer.add(this.add.text(48, panelY + 96, `${detail.series}  ${tagLine}  ✦ ${detail.price}`, this.font(20)).setOrigin(0, 0));
+    }
+
+    const cols = 3;
+    const gap = 12;
+    const cardW = (L.logicalW - 48 - gap * (cols - 1)) / cols;
+    const cardH = 84;
+    const viewTop = L.safeTop + L.topNavH + 148 + detailBlock;
+    const viewH = Math.max(cardH, L.logicalH - viewTop - 24);
+    const rows = Math.ceil(page.items.length / cols);
+    const contentH = rows * (cardH + gap);
+    const maxScroll = Math.max(0, contentH - viewH);
+    this.shopScroll = Math.min(this.shopScroll, maxScroll);
+
+    const rowsData =
+      page.tab === 'clothing'
+        ? page.items.map((item) => ({ id: item.itemId, name: item.name, price: item.price }))
+        : page.items.map((item) => ({ id: item.furnId, name: item.name, price: item.price }));
+    const list = this.add.container(0, viewTop - this.shopScroll);
+    layer.add(list);
+    const clip = this.make.graphics({}, false);
+    clip.fillStyle(0xffffff, 1);
+    clip.fillRect(0, viewTop, L.logicalW, viewH);
+    list.setMask(clip.createGeometryMask());
+    this.shopClip = clip;
+    rowsData.forEach((item, index) => {
+      const col = index % cols;
+      const row = Math.floor(index / cols);
+      const cx = 24 + cardW / 2 + col * (cardW + gap);
+      const cy = row * (cardH + gap) + cardH / 2;
+      const rect = this.add.rectangle(cx, cy, cardW, cardH, COLORS.bg, 1).setStrokeStyle(2, COLORS.night);
+      rect.setName(`shop-card-${item.id}`);
+      list.add(rect);
+      const name = this.add
+        .text(cx - cardW / 2 + 10, cy - 14, item.name, this.font(20))
+        .setOrigin(0, 0.5)
+        .setColor('#2e2a45');
+      name.setWordWrapWidth(cardW - 20);
+      name.setName(`shop-item-${item.id}`);
+      list.add(name);
+      list.add(
+        this.add
+          .text(cx - cardW / 2 + 10, cy + 22, `✦ ${item.price}`, this.font(18))
+          .setOrigin(0, 0.5)
+          .setColor('#8268c6'),
+      );
+      const owned =
+        page.tab === 'clothing'
+          ? this.app.save.getOwned().includes(item.id)
+          : this.app.save.getOwnedFurniture().includes(item.id);
+      list.add(
+        this.add
+          .text(cx + cardW / 2 - 8, cy + 22, owned ? '已拥有' : '购入', this.font(18))
+          .setOrigin(1, 0.5)
+          .setColor(owned ? '#8268c6' : '#3a3358')
+          .setName(owned ? `shop-owned-${item.id}` : `shop-buy-${item.id}`),
+      );
+    });
+
+    const scroller = this.add
+      .rectangle(L.logicalW / 2, viewTop + viewH / 2, L.logicalW, viewH, 0x000000, 0.001)
+      .setInteractive({ useHandCursor: true });
+    layer.add(scroller);
+    let dragStart = 0;
+    let scrollStart = 0;
+    scroller.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      dragStart = pointer.y;
+      scrollStart = this.shopScroll;
+    });
+    scroller.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (!pointer.isDown) return;
+      this.shopScroll = Math.max(0, Math.min(maxScroll, scrollStart + (dragStart - pointer.y)));
+      list.setY(viewTop - this.shopScroll);
+    });
+    scroller.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      if (Math.abs(pointer.y - dragStart) > 8) return;
+      const col = Math.floor((pointer.x - 24) / (cardW + gap));
+      const row = Math.floor((pointer.y - (viewTop - this.shopScroll)) / (cardH + gap));
+      if (col < 0 || col >= cols || row < 0) return;
+      const item = rowsData[row * cols + col];
+      if (!item) return;
+      const cardRight = 24 + (col + 1) * (cardW + gap) - gap;
+      if (pointer.x < cardRight - 56) {
+        this.shopDetailId = item.id;
+        this.paintShopOverlay();
+        return;
+      }
+      const bought = purchaseShopItem(this.app.save, item.id);
+      if (bought.ok) {
+        this.paintShopOverlay();
+        return;
+      }
+      if (bought.shake) {
+        const card = list.getByName(`shop-card-${item.id}`) as Phaser.GameObjects.Rectangle | null;
+        if (card) this.headShake(card, card.x, card.y);
+      }
+      if (bought.toast) this.toast(bought.toast);
+    });
+    mask.on('pointerup', () => this.closeShopOverlay());
+  }
+
+  private closeShopOverlay(): void {
+    this.shopLayer?.destroy(true);
+    this.shopLayer = null;
+    this.shopClip?.destroy();
+    this.shopClip = null;
+    this.shopScroll = 0;
+    this.shopDetailId = null;
+    if (this.overlayMgr.current() === 'shop') this.overlayMgr.closeOverlay();
+    this.paintModeChrome();
   }
 
   private font(px: number, bold = false): Phaser.Types.GameObjects.Text.TextStyle {
@@ -242,11 +577,16 @@ export class UiScene extends Phaser.Scene {
   private paintModeChrome(): void {
     if (!this.modes) return;
     this.modeTitle?.setText(this.shownMode === 'room' ? '房间' : '更衣室');
+    const shopOpen = this.overlayMgr.current() === 'shop';
     for (const tab of MODE_TAB_BAR) {
       const txt = this.modeTabLabels.get(tab.label);
       if (!txt?.active) continue;
-      const selected = tab.enabled && tab.mode === this.shownMode;
-      txt.setColor(!tab.enabled ? '#c9c0b4' : selected ? '#8268c6' : '#3a3358');
+      if (!tab.enabled) {
+        txt.setColor('#c9c0b4');
+        continue;
+      }
+      const selected = tab.label === '商店' ? shopOpen : !shopOpen && tab.mode === this.shownMode;
+      txt.setColor(selected ? '#8268c6' : '#3a3358');
     }
   }
 

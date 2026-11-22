@@ -43,6 +43,16 @@ export class OverlayManager {
   }
 }
 
+/** 打开商店。其它覆盖层先关掉，商店不叠第二层。 */
+export const openShopOverlay = (overlays: OverlayManager): 'shop' => {
+  const current = overlays.current();
+  if (current !== null && current !== 'shop') overlays.closeOverlay();
+  if (overlays.current() === 'shop') return 'shop';
+  const opened = overlays.openOverlay('shop');
+  if (opened !== 'shop') throw new Error('shop overlay refused');
+  return 'shop';
+};
+
 /**
  * 模式管理器（hud §2.4）：dress ⇄ room 二值；交叉淡切 ≤300ms 可打断、无过渡队列；
  * 每次进入模式抽屉重置默认档；摆放模式自动取消（room §5.4）。
@@ -100,11 +110,11 @@ export class ModeManager {
   }
 }
 
-/** 底部四入口。商店与成就保持不可用，直到各自的包。 */
+/** 底部四入口。成就保持不可用，直到成就包。 */
 export const MODE_TAB_BAR = [
   { label: '换装', enabled: true, mode: 'dress' },
   { label: '房间', enabled: true, mode: 'room' },
-  { label: '商店', enabled: false, mode: null },
+  { label: '商店', enabled: true, mode: null },
   { label: '成就', enabled: false, mode: null },
 ] as const;
 

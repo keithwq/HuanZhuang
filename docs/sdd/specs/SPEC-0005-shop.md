@@ -1,7 +1,7 @@
 # SPEC-0005: 商店
 
 - Spec ID: SPEC-0005
-- Status: DRAFT
+- Status: IMPLEMENTING
 - Package: PKG-05
 - Last Updated: 2026-11-22
 

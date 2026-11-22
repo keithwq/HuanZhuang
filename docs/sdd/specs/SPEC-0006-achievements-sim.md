@@ -1,7 +1,7 @@
 # SPEC-0006: 成就与经济模拟
 
 - Spec ID: SPEC-0006
-- Status: DRAFT
+- Status: IMPLEMENTING
 - Package: PKG-06
 - Last Updated: 2026-11-22
 

@@ -6,6 +6,7 @@
  */
 
 import { bus } from '../../core/bus';
+import { applyDailyProgress } from '../daily/progress';
 import { SAVE_POLICY } from '../../core/constants/budget';
 import { isOutfitKey, type SlotId } from '../../core/constants/slots';
 import { DayFlip, defaultDateKeyFn, localDateKey } from './DayFlip';
@@ -272,6 +273,7 @@ export class SaveService {
     void today;
     this.data.stats[key] += n;
     bus.emit('stat:bump', { key, delta: n, total: this.data.stats[key] });
+    applyDailyProgress(this, key, n);
     this.policy.scheduleDebounced();
   }
 
@@ -343,6 +345,46 @@ export class SaveService {
   /** 回前台/打开时主动验日（local-save §2.3；游戏引导层 visibilitychange→visible 调用） */
   checkDayFlipNow(): void {
     this.dayFlip.check(this.data.daily.dateKey);
+  }
+
+  getDailyDateKey(): string {
+    return this.data.daily.dateKey;
+  }
+
+  getDailyTasks(): SaveDataV1['daily']['tasks'] {
+    return this.data.daily.tasks.map((task) => ({ ...task }));
+  }
+
+  /** 对齐当日 dateKey。过期则清空任务清单（重抽由抽取方在清空后写入）。 */
+  syncDailyDate(): string {
+    return this.dayFlip.check(this.data.daily.dateKey);
+  }
+
+  setDailyProgress(taskId: string, progress: number): void {
+    const task = this.data.daily.tasks.find((item) => item.taskId === taskId);
+    if (!task) return;
+    task.progress = progress;
+  }
+
+  /** 标记已领。已领过返回 false，避免同一条再次入账。 */
+  markDailyClaimed(taskId: string): boolean {
+    const task = this.data.daily.tasks.find((item) => item.taskId === taskId);
+    if (!task || task.claimed) return false;
+    task.claimed = true;
+    return true;
+  }
+
+  /** 写入当日 3 条。同一 dateKey 上已有 3 条时保持原清单（含进度）。 */
+  commitDailyTasks(tasks: SaveDataV1['daily']['tasks']): SaveDataV1['daily']['tasks'] {
+    this.syncDailyDate();
+    if (this.data.daily.tasks.length === 3) return this.getDailyTasks();
+    this.data.daily.tasks = tasks.map((task) => ({
+      taskId: task.taskId,
+      progress: task.progress,
+      claimed: task.claimed,
+    }));
+    this.policy.scheduleDebounced();
+    return this.getDailyTasks();
   }
 
   /** 强制冲刷（生命周期钩子挂接由引导层调用） */

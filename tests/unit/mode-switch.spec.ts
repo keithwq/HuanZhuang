@@ -49,10 +49,11 @@ const setup = (reduced: boolean) => {
 };
 
 describe('底部页签（SPEC-0003 CARD-01）', () => {
-  it('房间可进入换装与房间，商店和成就仍不可用', () => {
+  it('换装与房间可进入，商店可点，成就仍不可用', () => {
     expect(MODE_TAB_BAR.find((tab) => tab.label === '换装')).toMatchObject({ enabled: true, mode: 'dress' });
     expect(MODE_TAB_BAR.find((tab) => tab.label === '房间')).toMatchObject({ enabled: true, mode: 'room' });
-    expect(MODE_TAB_BAR.filter((tab) => !tab.enabled).map((tab) => tab.label)).toEqual(['商店', '成就']);
+    expect(MODE_TAB_BAR.find((tab) => tab.label === '商店')).toMatchObject({ enabled: true });
+    expect(MODE_TAB_BAR.filter((tab) => !tab.enabled).map((tab) => tab.label)).toEqual(['成就']);
   });
 });
 
@@ -226,7 +227,7 @@ describe('AC-04 减敏时氛围光直切', () => {
 });
 
 describe('离开房间释放房间灰盒纹理（SPEC-0003 CARD-03）', () => {
-  it('切回换装才释放本舞台登记的键，商店页签仍然不可用', () => {
+  it('切回换装才释放本舞台登记的键，成就页签仍然不可用', () => {
     attachRoomTextureRelease();
     const removed: string[] = [];
     bindRoomTextureHost({
@@ -244,6 +245,6 @@ describe('离开房间释放房间灰盒纹理（SPEC-0003 CARD-03）', () => {
     bus.emit('hud:modeChange', { mode: 'dress' });
     expect(removed).toEqual(['gz_room_bed']);
     expect(texmem.has('gz_room_bed')).toBe(false);
-    expect(MODE_TAB_BAR.find((tab) => tab.label === '商店')?.enabled).toBe(false);
+    expect(MODE_TAB_BAR.find((tab) => tab.label === '成就')?.enabled).toBe(false);
   });
 });
